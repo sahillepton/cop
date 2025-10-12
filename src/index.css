@@ -137,3 +137,22 @@ body {
     transform: translate(-50%, -50%) scale(0.8);
   }
 }
+
+/* Explosion effect for threat elimination */
+@keyframes explosion {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(3);
+    opacity: 0.8;
+    filter: brightness(5) hue-rotate(180deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(5);
+    opacity: 0;
+    filter: brightness(0);
+  }
+}

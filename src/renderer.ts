@@ -21,9 +21,8 @@ type Aircraft = {
   lastPosition?: { lat: number; lng: number }; // Last known position for distance calculation
 };
 
-// WebSocket client
-class WebSocketClient {
-  private ws: WebSocket | null = null;
+// Tactical Display Client (with dummy data)
+class TacticalDisplayClient {
   private aircraft: Map<string, Aircraft> = new Map();
   private nodeId: string = '';
   private selectedRange: string = '200NM'; // Default range
@@ -37,7 +36,7 @@ class WebSocketClient {
   private messageCodes: number[] = [101, 102, 103, 104, 105, 106, 122]; // Available message codes
   private mapUpdateInterval: NodeJS.Timeout | null = null; // Track periodic map updates
   private motherAircraft: Aircraft | null = null; // Reference to mother aircraft for centering
-  private showMap: boolean = false; // Toggle visibility of background map
+  private showMap: boolean = true; // Toggle visibility of background map (enabled by default)
   private mapElement: HTMLElement | null = null; // Reference to map container
   private centerMode: 'mother' | 'self' = 'mother'; // Toggle between mother-centered and self-centered view
   private showThreatDialog: boolean = true; // Toggle visibility of threat dialog
@@ -96,92 +95,149 @@ class WebSocketClient {
   };
 
   constructor() {
-    this.connect();
+    this.initialize();
   }
 
-  private connect() {
-    try {
-      this.ws = new WebSocket('ws://localhost:8080');
+  private initialize() {
+    console.log('🎮 Initializing tactical display with dummy data...');
+    
+    // Generate node ID
+    this.nodeId = this.generateId();
+    
+    // Set initial location within India's boundaries
+    // India coordinates: Lat 8°N to 37°N, Lng 68°E to 97°E
+    // Starting near central India (around Nagpur/Madhya Pradesh region)
+    this.currentLat = 20.0 + Math.random() * 8.0; // 20°N to 28°N (Central to North India)
+    this.currentLng = 75.0 + Math.random() * 8.0; // 75°E to 83°E (Central India)
+    
+    // Create self aircraft
+    const selfAircraft: Aircraft = {
+      id: this.nodeId,
+      status: 'connected',
+      info: 'F-35 Lightning II Client',
+      lat: this.currentLat,
+      lng: this.currentLng,
+      aircraftType: 'self',
+      callSign: `LIGHTNING-${Math.floor(Math.random() * 99) + 1}`,
+      altitude: 25000 + Math.floor(Math.random() * 10000),
+      heading: Math.floor(Math.random() * 360),
+      speed: this.getAircraftSpeed('self'),
+      totalDistanceCovered: 0,
+      lastPosition: { lat: this.currentLat, lng: this.currentLng }
+    };
+    
+    // Add self aircraft
+    this.aircraft.set(this.nodeId, selfAircraft);
+    console.log('✈️ Self aircraft created:', selfAircraft.callSign);
+    
+    // Generate dummy aircraft data
+    this.generateDummyAircraft();
+    
+    console.log(`📊 Total aircraft initialized: ${this.aircraft.size}`);
+    
+    // Start all systems
+    this.startLocationUpdates();
+    this.startPeriodicMapUpdates();
+    this.startContinuousMovement();
+    this.startTacticalSimulation();
+    
+    // Update UI to show all aircraft immediately
+    this.updateUI();
+  }
+
+  private generateDummyAircraft() {
+    // Create mother aircraft (center node) very close to self aircraft
+    const motherLat = this.clampToIndiaBounds(this.currentLat + (Math.random() - 0.5) * 0.02, 'lat');
+    const motherLng = this.clampToIndiaBounds(this.currentLng + (Math.random() - 0.5) * 0.02, 'lng');
+    
+    const motherAircraft: Aircraft = {
+      id: this.generateId(),
+      status: 'connected',
+      info: 'Command Aircraft',
+      lat: motherLat,
+      lng: motherLng,
+      aircraftType: 'mother',
+      callSign: `MOTHER-${Math.floor(Math.random() * 9) + 1}`,
+      altitude: 30000 + Math.floor(Math.random() * 5000),
+      heading: Math.floor(Math.random() * 360),
+      speed: this.getAircraftSpeed('mother'),
+      totalDistanceCovered: 0,
+      lastPosition: { lat: motherLat, lng: motherLng }
+    };
+    
+    this.addAircraft(motherAircraft);
+    console.log('🎯 Mother aircraft created:', motherAircraft.callSign, `at ${motherLat.toFixed(2)}°N, ${motherLng.toFixed(2)}°E (India)`);
+    
+    // Create exactly 4 friendly aircraft positioned around the center within India
+    const friendlyCount = 4;
+    for (let i = 0; i < friendlyCount; i++) {
+      // Distribute friendly aircraft in different directions for better visibility
+      const angle = (i * 90) + (Math.random() - 0.5) * 30; // Spread in 4 quadrants
+      const distance = 0.15 + Math.random() * 0.1; // 0.15-0.25 degrees away (~17-28 km)
+      const angleRad = (angle * Math.PI) / 180;
       
-      this.ws.onopen = () => {
-        console.log('🔗 Connected to WebSocket server');
-        console.log('🔗 WebSocket ready state:', this.ws?.readyState);
-        this.sendConnection();
+      const friendlyLat = this.clampToIndiaBounds(this.currentLat + Math.cos(angleRad) * distance, 'lat');
+      const friendlyLng = this.clampToIndiaBounds(this.currentLng + Math.sin(angleRad) * distance, 'lng');
+      
+      const friendlyAircraft: Aircraft = {
+        id: this.generateId(),
+        status: 'connected',
+        info: 'Fighter Aircraft',
+        lat: friendlyLat,
+        lng: friendlyLng,
+        aircraftType: 'friendly',
+        callSign: `VIPER-${10 + i + 1}`,
+        altitude: 20000 + Math.floor(Math.random() * 15000),
+        heading: Math.floor(Math.random() * 360),
+        speed: this.getAircraftSpeed('friendly'),
+        totalDistanceCovered: 0,
+        lastPosition: { lat: friendlyLat, lng: friendlyLng }
       };
-
-      this.ws.onmessage = (event) => {
-        console.log('🔄 Raw WebSocket message received:', event.data);
-        try {
-        const data = JSON.parse(event.data);
-          console.log('🔄 Parsed message data:', data);
-        this.handleMessage(data);     
-        } catch (error) {
-          console.error('❌ Failed to parse WebSocket message:', error);
-          console.error('❌ Raw data:', event.data);
-        }
+      
+      this.addAircraft(friendlyAircraft);
+      console.log('🤝 Friendly aircraft created:', friendlyAircraft.callSign, `at ${friendlyLat.toFixed(2)}°N, ${friendlyLng.toFixed(2)}°E (India)`);
+    }
+    
+    // Create exactly 4 threat aircraft positioned around the center within India
+    const threatCount = 4;
+    for (let i = 0; i < threatCount; i++) {
+      // Distribute threat aircraft in different directions, offset from friendly
+      const angle = (i * 90) + 45 + (Math.random() - 0.5) * 30; // Offset by 45° from friendly
+      const distance = 0.2 + Math.random() * 0.15; // 0.2-0.35 degrees away (~22-39 km)
+      const angleRad = (angle * Math.PI) / 180;
+      
+      const threatLat = this.clampToIndiaBounds(this.currentLat + Math.cos(angleRad) * distance, 'lat');
+      const threatLng = this.clampToIndiaBounds(this.currentLng + Math.sin(angleRad) * distance, 'lng');
+      
+      const threatAircraft: Aircraft = {
+        id: this.generateId(),
+        status: 'connected',
+        info: 'Hostile Aircraft',
+        lat: threatLat,
+        lng: threatLng,
+        aircraftType: 'threat',
+        callSign: `BANDIT-${20 + i + 1}`,
+        altitude: 15000 + Math.floor(Math.random() * 20000),
+        heading: Math.floor(Math.random() * 360),
+        speed: this.getAircraftSpeed('threat'),
+        totalDistanceCovered: 0,
+        lastPosition: { lat: threatLat, lng: threatLng }
       };
-
-      this.ws.onclose = () => {
-        console.log('❌ WebSocket connection closed. Attempting to reconnect...');
-        setTimeout(() => this.connect(), 3000);
-      };
-
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-    } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
-      setTimeout(() => this.connect(), 3000);
+      
+      this.addAircraft(threatAircraft);
+      this.simulationSystem.activeThreats.add(threatAircraft.id);
+      console.log('⚠️ Threat aircraft created:', threatAircraft.callSign, `at ${threatLat.toFixed(2)}°N, ${threatLng.toFixed(2)}°E (India)`);
     }
   }
 
-  private sendConnection() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.nodeId = this.generateId();
-      // Set initial realistic location (somewhere in a reasonable area, closer to center)
-      this.currentLat = 40.7128 + (Math.random() - 0.5) * 0.05; // Near NYC with moderate variation
-      this.currentLng = -74.0060 + (Math.random() - 0.5) * 0.05;
-      
-      const connectionData = {
-        type: 'connection',
-        payload: {
-          id: this.nodeId,
-          status: 'connected',
-          info: 'F-35 Lightning II Client',
-          lat: this.currentLat,
-          lng: this.currentLng,
-          aircraftType: 'self', // Self aircraft marked as 'self' type
-          callSign: `LIGHTNING-${Math.floor(Math.random() * 99) + 1}`,
-          altitude: 25000 + Math.floor(Math.random() * 10000),
-          heading: Math.floor(Math.random() * 360),
-          speed: this.getAircraftSpeed('self')
-        }
-      };
-      
-      // Add self aircraft to the aircraft map immediately
-      this.aircraft.set(this.nodeId, connectionData.payload as Aircraft);
-      
-      this.ws.send(JSON.stringify(connectionData));
-      console.log('📤 Sent connection data:', connectionData);
-      console.log('📤 Waiting for server to send existing aircraft...');
-      
-      // Start heartbeat to maintain connection
-      this.startHeartbeat();
-      
-      // Start sending location updates
-      this.startLocationUpdates();
-      
-      // Start periodic map updates
-      this.startPeriodicMapUpdates();
-      
-      // Start continuous movement system
-      this.startContinuousMovement();
-      
-      // Start tactical simulation
-      this.startTacticalSimulation();
-      
-      // Update UI to show self aircraft immediately
-      this.updateUI();
+  private clampToIndiaBounds(value: number, type: 'lat' | 'lng'): number {
+    // India's geographical boundaries
+    // Latitude: 8°N (southernmost) to 37°N (northernmost)
+    // Longitude: 68°E (westernmost) to 97°E (easternmost)
+    if (type === 'lat') {
+      return Math.max(8, Math.min(37, value));
+    } else {
+      return Math.max(68, Math.min(97, value));
     }
   }
 
@@ -639,19 +695,20 @@ class WebSocketClient {
       nearestThreats.forEach((threat, index) => {
         const threatItem = document.createElement('div');
         threatItem.style.cssText = `
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 6px 8px;
-          margin: 2px 0;
+          padding: 8px;
+          margin: 4px 0;
           background: rgba(255, 68, 68, 0.1);
           border-left: 3px solid #ff4444;
           border-radius: 3px;
         `;
 
-        const threatInfo = document.createElement('div');
-        threatInfo.style.cssText = `
-          flex: 1;
+        // Top row: Callsign and Distance
+        const topRow = document.createElement('div');
+        topRow.style.cssText = `
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 4px;
         `;
 
         const callSign = document.createElement('div');
@@ -661,28 +718,87 @@ class WebSocketClient {
         `;
         callSign.textContent = threat.aircraft.callSign;
 
-        const details = document.createElement('div');
-        details.style.cssText = `
-          font-size: 10px;
-          color: #cccccc;
-          margin-top: 2px;
-        `;
-        details.textContent = `${threat.aircraft.altitude}ft | ${threat.aircraft.speed}kts | Hdg ${threat.aircraft.heading}°`;
-
-        threatInfo.appendChild(callSign);
-        threatInfo.appendChild(details);
-
         const distance = document.createElement('div');
         distance.style.cssText = `
           font-weight: bold;
           color: #ffaa44;
           font-size: 14px;
-          text-align: right;
         `;
         distance.textContent = `${threat.distanceNM.toFixed(1)}NM`;
 
-        threatItem.appendChild(threatInfo);
-        threatItem.appendChild(distance);
+        topRow.appendChild(callSign);
+        topRow.appendChild(distance);
+
+        // Details row
+        const details = document.createElement('div');
+        details.style.cssText = `
+          font-size: 10px;
+          color: #cccccc;
+          margin-bottom: 6px;
+        `;
+        details.textContent = `${threat.aircraft.altitude}ft | ${threat.aircraft.speed}kts | Hdg ${threat.aircraft.heading}°`;
+
+        // Action buttons row
+        const actionsRow = document.createElement('div');
+        actionsRow.style.cssText = `
+          display: flex;
+          gap: 5px;
+        `;
+
+        const lockBtn = document.createElement('button');
+        lockBtn.style.cssText = `
+          background: #ff8800;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 3px;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: bold;
+          flex: 1;
+          transition: all 0.2s;
+        `;
+        lockBtn.textContent = '🎯 LOCK';
+        lockBtn.addEventListener('mouseenter', () => {
+          lockBtn.style.background = '#ffaa00';
+        });
+        lockBtn.addEventListener('mouseleave', () => {
+          lockBtn.style.background = '#ff8800';
+        });
+        lockBtn.addEventListener('click', () => {
+          this.lockThreat(threat.aircraft);
+        });
+
+        const executeBtn = document.createElement('button');
+        executeBtn.style.cssText = `
+          background: #ff0000;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 3px;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: bold;
+          flex: 1;
+          transition: all 0.2s;
+        `;
+        executeBtn.textContent = '💥 EXECUTE';
+        executeBtn.addEventListener('mouseenter', () => {
+          executeBtn.style.background = '#ff3333';
+        });
+        executeBtn.addEventListener('mouseleave', () => {
+          executeBtn.style.background = '#ff0000';
+        });
+        executeBtn.addEventListener('click', () => {
+          this.executeThreat(threat.aircraft);
+        });
+
+        actionsRow.appendChild(lockBtn);
+        actionsRow.appendChild(executeBtn);
+
+        threatItem.appendChild(topRow);
+        threatItem.appendChild(details);
+        threatItem.appendChild(actionsRow);
         threatList.appendChild(threatItem);
       });
     }
@@ -720,78 +836,64 @@ class WebSocketClient {
   // Location updates are now handled by the server, so this method is removed
 
   private startHeartbeat() {
-    // Send periodic heartbeat to maintain connection and let server know we're alive
+    // Local heartbeat (no network communication needed)
     this.heartbeatInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const heartbeatData = {
-          type: 'heartbeat',
-          payload: {
-            id: this.nodeId,
-            timestamp: Date.now(),
-            status: 'connected'
-          }
-        };
-        this.ws.send(JSON.stringify(heartbeatData));
-        console.log('Sent heartbeat:', heartbeatData);
-      }
-    }, 5000); // Send heartbeat every 5 seconds
+      const heartbeatData = {
+        type: 'heartbeat',
+        payload: {
+          id: this.nodeId,
+          timestamp: Date.now(),
+          status: 'connected'
+        }
+      };
+      console.log('💓 Heartbeat:', heartbeatData);
+    }, 5000); // Log heartbeat every 5 seconds
   }
 
   private startLocationUpdates() {
-    // Send periodic location updates to server with variable frequency
+    // Local location updates (no network communication needed)
     const sendLocationUpdate = () => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const selfAircraft = this.aircraft.get(this.nodeId);
-        if (selfAircraft) {
-          // Calculate movement based on current speed and heading
-          const speedKnots = selfAircraft.speed;
-          const headingRad = (selfAircraft.heading * Math.PI) / 180;
-          
-          // Convert speed from knots to degrees per second (very fast, highly visible movement)
-          // 1 knot = 1.852 km/h = 0.514 m/s
-          // At equator: 1 degree ≈ 111,320 meters
-          // So 1 knot ≈ 0.514 / 111,320 ≈ 0.00000462 degrees per second
-          // Multiply by 50 for very fast, highly visible movement
-          const speedDegreesPerSecond = speedKnots * 0.00000462 * 50;
-          
-          // Calculate movement in lat/lng based on heading
-          // For latitude: movement is directly proportional to cos(heading)
-          // For longitude: movement is proportional to sin(heading) but also depends on latitude
-          const latMovement = Math.cos(headingRad) * speedDegreesPerSecond;
-          const lngMovement = Math.sin(headingRad) * speedDegreesPerSecond / Math.cos(selfAircraft.lat * Math.PI / 180);
-          
-          // Apply movement
-          selfAircraft.lat += latMovement;
-          selfAircraft.lng += lngMovement;
-          
-          // Add some random variation to make movement more realistic (larger movements for visibility)
-          selfAircraft.lat += (Math.random() - 0.5) * 0.0002;
-          selfAircraft.lng += (Math.random() - 0.5) * 0.0002;
-          
-          // Update heading and speed more frequently for larger movements
-          if (Math.random() < 0.1) { // 10% chance for more frequent heading changes
-            selfAircraft.heading = (selfAircraft.heading + (Math.random() - 0.5) * 20 + 360) % 360; // Larger heading changes
-          }
-          if (Math.random() < 0.05) { // 5% chance for more frequent speed changes
-            selfAircraft.speed += (Math.random() - 0.5) * 50; // Larger speed changes
-            selfAircraft.speed = Math.max(200, Math.min(800, selfAircraft.speed));
-          }
-          
-          const locationData = {
-            type: 'location',
-            payload: {
-              id: this.nodeId,
-              lat: selfAircraft.lat,
-              lng: selfAircraft.lng,
-              altitude: selfAircraft.altitude,
-              heading: selfAircraft.heading,
-              speed: selfAircraft.speed
-            }
-          };
-          
-          this.ws.send(JSON.stringify(locationData));
-          console.log(`📡 Sent self location update: ${selfAircraft.callSign} at ${selfAircraft.lat.toFixed(6)}, ${selfAircraft.lng.toFixed(6)} | Speed: ${selfAircraft.speed}kts, Hdg: ${selfAircraft.heading}°`);
+      const selfAircraft = this.aircraft.get(this.nodeId);
+      if (selfAircraft) {
+        // Calculate movement based on current speed and heading
+        const speedKnots = selfAircraft.speed;
+        const headingRad = (selfAircraft.heading * Math.PI) / 180;
+        
+        // Convert speed from knots to degrees per second (realistic visible movement)
+        // 1 knot = 1.852 km/h = 0.514 m/s
+        // At equator: 1 degree ≈ 111,320 meters
+        // So 1 knot ≈ 0.514 / 111,320 ≈ 0.00000462 degrees per second
+        // Multiply by 100 for fast, realistic aircraft movement
+        const speedDegreesPerSecond = speedKnots * 0.00000462 * 100;
+        
+        // Calculate movement in lat/lng based on heading
+        // For latitude: movement is directly proportional to cos(heading)
+        // For longitude: movement is proportional to sin(heading) but also depends on latitude
+        const latMovement = Math.cos(headingRad) * speedDegreesPerSecond;
+        const lngMovement = Math.sin(headingRad) * speedDegreesPerSecond / Math.cos(selfAircraft.lat * Math.PI / 180);
+        
+        // Apply movement
+        selfAircraft.lat += latMovement;
+        selfAircraft.lng += lngMovement;
+        
+        // Add some random variation to make movement more realistic (larger movements for visibility)
+        selfAircraft.lat += (Math.random() - 0.5) * 0.0002;
+        selfAircraft.lng += (Math.random() - 0.5) * 0.0002;
+        
+        // Clamp to India boundaries
+        selfAircraft.lat = this.clampToIndiaBounds(selfAircraft.lat, 'lat');
+        selfAircraft.lng = this.clampToIndiaBounds(selfAircraft.lng, 'lng');
+        
+        // Update heading and speed more frequently for larger movements
+        if (Math.random() < 0.1) { // 10% chance for more frequent heading changes
+          selfAircraft.heading = (selfAircraft.heading + (Math.random() - 0.5) * 20 + 360) % 360; // Larger heading changes
         }
+        if (Math.random() < 0.05) { // 5% chance for more frequent speed changes
+          selfAircraft.speed += (Math.random() - 0.5) * 50; // Larger speed changes
+          selfAircraft.speed = Math.max(200, Math.min(800, selfAircraft.speed));
+        }
+        
+        console.log(`📡 Local location update: ${selfAircraft.callSign} at ${selfAircraft.lat.toFixed(6)}°N, ${selfAircraft.lng.toFixed(6)}°E (India) | Speed: ${selfAircraft.speed}kts, Hdg: ${selfAircraft.heading}°`);
       }
       
       // Schedule next update with random interval between 100ms and 1s for realistic movement
@@ -804,7 +906,7 @@ class WebSocketClient {
   }
 
   private startPeriodicMapUpdates() {
-    // Force map updates every 50ms for ultra-smooth tracking of center aircraft movement
+    // Force map updates every 16ms for ultra-smooth continuous tracking (60fps)
     this.mapUpdateInterval = setInterval(() => {
       if (this.showMap) {
         const visualizationArea = document.getElementById('visualization-area');
@@ -812,7 +914,7 @@ class WebSocketClient {
           this.updateMapPositionSmooth(visualizationArea);
         }
       }
-    }, 50); // Update every 50ms for ultra-smooth movement tracking
+    }, 16); // Update every 16ms for 60fps smooth movement tracking like aircraft
   }
 
   private startContinuousMovement() {
@@ -963,7 +1065,7 @@ class WebSocketClient {
   }
 
   private spawnFormationAircraft() {
-    // Spawn friendly aircraft in formation
+    // Spawn friendly aircraft in formation within India
     const aircraftId = `FRIENDLY-${Date.now()}`;
     const selfAircraft = this.aircraft.get(this.nodeId);
     if (!selfAircraft) return;
@@ -976,8 +1078,8 @@ class WebSocketClient {
       id: aircraftId,
       status: 'connected',
       info: 'F-22 Raptor',
-      lat: selfAircraft.lat + offsetLat,
-      lng: selfAircraft.lng + offsetLng,
+      lat: this.clampToIndiaBounds(selfAircraft.lat + offsetLat, 'lat'),
+      lng: this.clampToIndiaBounds(selfAircraft.lng + offsetLng, 'lng'),
       aircraftType: 'friendly',
       callSign: `FALCON-${Math.floor(Math.random() * 99) + 1}`,
       altitude: 25000 + Math.floor(Math.random() * 5000),
@@ -986,12 +1088,12 @@ class WebSocketClient {
     };
     
     this.aircraft.set(aircraftId, newAircraft);
-    console.log(`✈️ Spawned formation aircraft: ${newAircraft.callSign}`);
+    console.log(`✈️ Spawned formation aircraft: ${newAircraft.callSign} at ${newAircraft.lat.toFixed(2)}°N, ${newAircraft.lng.toFixed(2)}°E (India)`);
     this.updateUI();
   }
 
   private spawnThreatAircraft() {
-    // Spawn threat aircraft from random directions
+    // Spawn threat aircraft from random directions within India
     const aircraftId = `THREAT-${Date.now()}`;
     const selfAircraft = this.aircraft.get(this.nodeId);
     if (!selfAircraft) return;
@@ -1007,8 +1109,8 @@ class WebSocketClient {
       id: aircraftId,
       status: 'connected',
       info: 'Unknown Hostile',
-      lat: selfAircraft.lat + offsetLat,
-      lng: selfAircraft.lng + offsetLng,
+      lat: this.clampToIndiaBounds(selfAircraft.lat + offsetLat, 'lat'),
+      lng: this.clampToIndiaBounds(selfAircraft.lng + offsetLng, 'lng'),
       aircraftType: 'threat',
       callSign: `BANDIT-${Math.floor(Math.random() * 99) + 1}`,
       altitude: 20000 + Math.floor(Math.random() * 15000),
@@ -1018,7 +1120,7 @@ class WebSocketClient {
     
     this.aircraft.set(aircraftId, newAircraft);
     this.simulationSystem.activeThreats.add(aircraftId);
-    console.log(`🚨 Spawned threat aircraft: ${newAircraft.callSign} at ${distance.toFixed(1)}NM`);
+    console.log(`🚨 Spawned threat aircraft: ${newAircraft.callSign} at ${newAircraft.lat.toFixed(2)}°N, ${newAircraft.lng.toFixed(2)}°E (India) - ${distance.toFixed(1)}NM away`);
     this.updateUI();
   }
 
@@ -1257,77 +1359,163 @@ class WebSocketClient {
   }
 
   private getLocationInfo(lat: number, lng: number): { country: string; state: string; place: string } {
-    // Simple geographic region determination based on coordinates
-    // This is a basic implementation - in production, you'd use a reverse geocoding API
-    
+    // Improved geographic determination based on precise coordinates
     let country = 'Unknown';
     let state = 'Unknown';
     let place = 'Unknown';
     
-    // Determine country/region based on lat/lng ranges
+    // United States (more precise)
     if (lat >= 24 && lat <= 49 && lng >= -125 && lng <= -66) {
       country = 'United States';
-      // Rough state determination
-      if (lat >= 32 && lat <= 37 && lng >= -120 && lng <= -114) {
+      if (lat >= 32 && lat <= 42 && lng >= -125 && lng <= -114) {
         state = 'California';
-        place = 'Southern California';
-      } else if (lat >= 30 && lat <= 37 && lng >= -107 && lng <= -93) {
+        place = lat >= 34 ? 'Northern California' : 'Southern California';
+      } else if (lat >= 25 && lat <= 31 && lng >= -97 && lng <= -80) {
+        state = 'Florida';
+        place = 'Sunshine State';
+      } else if (lat >= 25 && lat <= 37 && lng >= -107 && lng <= -93) {
         state = 'Texas';
-        place = 'Texas Region';
-      } else if (lat >= 36 && lat <= 42 && lng >= -80 && lng <= -74) {
+        place = 'Lone Star State';
+      } else if (lat >= 36 && lat <= 42 && lng >= -80 && lng <= -71) {
         state = 'New York';
-        place = 'NY Metro Area';
+        place = 'Empire State';
+      } else if (lat >= 35 && lat <= 42 && lng >= -120 && lng <= -114) {
+        state = 'Nevada';
+        place = 'Silver State';
       } else {
         state = 'Continental US';
-        place = 'Mainland';
+        place = 'United States';
       }
-    } else if (lat >= 35 && lat <= 42 && lng >= -10 && lng <= 5) {
+    }
+    // Spain
+    else if (lat >= 36 && lat <= 44 && lng >= -10 && lng <= 4) {
       country = 'Spain';
-      state = 'Iberian Peninsula';
-      place = 'Mediterranean Region';
-    } else if (lat >= 41 && lat <= 51 && lng >= -5 && lng <= 2) {
+      state = 'Kingdom of Spain';
+      place = 'Iberian Peninsula';
+    }
+    // France
+    else if (lat >= 42 && lat <= 51 && lng >= -5 && lng <= 10) {
+      country = 'France';
+      state = 'French Republic';
+      place = 'Western Europe';
+    }
+    // Germany
+    else if (lat >= 47 && lat <= 55 && lng >= 6 && lng <= 15) {
+      country = 'Germany';
+      state = 'Federal Republic';
+      place = 'Central Europe';
+    }
+    // Italy
+    else if (lat >= 36 && lat <= 47 && lng >= 6 && lng <= 19) {
+      country = 'Italy';
+      state = 'Italian Republic';
+      place = 'Italian Peninsula';
+    }
+    // United Kingdom
+    else if (lat >= 49 && lat <= 61 && lng >= -8 && lng <= 2) {
       country = 'United Kingdom';
       state = 'Great Britain';
       place = 'British Isles';
-    } else if (lat >= 35 && lat <= 45 && lng >= 10 && lng <= 20) {
-      country = 'Italy';
-      state = 'Mediterranean';
-      place = 'Italian Peninsula';
-    } else if (lat >= 20 && lat <= 35 && lng >= 25 && lng <= 45) {
-      country = 'Middle East';
-      state = 'Arabian Peninsula';
-      place = 'Gulf Region';
-    } else if (lat >= 5 && lat <= 25 && lng >= 100 && lng <= 120) {
-      country = 'Southeast Asia';
-      state = 'South China Sea';
-      place = 'Maritime Asia';
-    } else if (lat >= -40 && lat <= -10 && lng >= 110 && lng <= 155) {
+    }
+    // Poland
+    else if (lat >= 49 && lat <= 55 && lng >= 14 && lng <= 24) {
+      country = 'Poland';
+      state = 'Republic of Poland';
+      place = 'Eastern Europe';
+    }
+    // Turkey
+    else if (lat >= 36 && lat <= 42 && lng >= 26 && lng <= 45) {
+      country = 'Turkey';
+      state = 'Turkish Republic';
+      place = 'Anatolia';
+    }
+    // Saudi Arabia
+    else if (lat >= 16 && lat <= 32 && lng >= 34 && lng <= 56) {
+      country = 'Saudi Arabia';
+      state = 'Kingdom of Saudi Arabia';
+      place = 'Arabian Peninsula';
+    }
+    // UAE
+    else if (lat >= 22 && lat <= 26 && lng >= 51 && lng <= 57) {
+      country = 'United Arab Emirates';
+      state = 'UAE';
+      place = 'Persian Gulf';
+    }
+    // Egypt
+    else if (lat >= 22 && lat <= 32 && lng >= 24 && lng <= 37) {
+      country = 'Egypt';
+      state = 'Arab Republic of Egypt';
+      place = 'Nile Region';
+    }
+    // India
+    else if (lat >= 8 && lat <= 35 && lng >= 68 && lng <= 97) {
+      country = 'India';
+      state = 'Republic of India';
+      place = 'Indian Subcontinent';
+    }
+    // China
+    else if (lat >= 18 && lat <= 54 && lng >= 73 && lng <= 135) {
+      country = 'China';
+      state = 'People\'s Republic';
+      place = 'East Asia';
+    }
+    // Japan
+    else if (lat >= 24 && lat <= 46 && lng >= 123 && lng <= 146) {
+      country = 'Japan';
+      state = 'Japanese Islands';
+      place = 'East Asia';
+    }
+    // South Korea
+    else if (lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132) {
+      country = 'South Korea';
+      state = 'Republic of Korea';
+      place = 'Korean Peninsula';
+    }
+    // Thailand
+    else if (lat >= 5 && lat <= 21 && lng >= 97 && lng <= 106) {
+      country = 'Thailand';
+      state = 'Kingdom of Thailand';
+      place = 'Southeast Asia';
+    }
+    // Australia
+    else if (lat >= -44 && lat <= -10 && lng >= 113 && lng <= 154) {
       country = 'Australia';
-      state = 'Australian Continent';
-      place = 'Down Under';
-    } else if (lat >= 60 && lat <= 80) {
-      country = 'Arctic Region';
-      state = 'Far North';
-      place = 'Polar Area';
-    } else if (lat >= -60 && lat <= -40) {
-      country = 'Southern Ocean';
-      state = 'Antarctic Waters';
-      place = 'Far South';
-    } else if (Math.abs(lat) < 10) {
-      country = 'Equatorial Region';
-      state = 'Tropics';
-      place = 'Equator Area';
-    } else if (lng >= -180 && lng <= -30 && lat >= -30 && lat <= 30) {
-      country = 'Atlantic Ocean';
-      state = 'Mid-Atlantic';
-      place = 'Open Ocean';
-    } else if (lng >= 30 && lng <= 180 && lat >= -30 && lat <= 30) {
-      country = 'Pacific Ocean';
-      state = 'Mid-Pacific';
-      place = 'Open Ocean';
-    } else {
-      country = 'International Waters';
-      state = 'Open Ocean';
+      state = 'Commonwealth of Australia';
+      place = 'Australian Continent';
+    }
+    // South Africa
+    else if (lat >= -35 && lat <= -22 && lng >= 16 && lng <= 33) {
+      country = 'South Africa';
+      state = 'Republic of South Africa';
+      place = 'Southern Africa';
+    }
+    // Brazil
+    else if (lat >= -34 && lat <= 5 && lng >= -74 && lng <= -34) {
+      country = 'Brazil';
+      state = 'Federative Republic';
+      place = 'South America';
+    }
+    // Argentina
+    else if (lat >= -55 && lat <= -21 && lng >= -74 && lng <= -53) {
+      country = 'Argentina';
+      state = 'Argentine Republic';
+      place = 'South America';
+    }
+    // Canada
+    else if (lat >= 41 && lat <= 84 && lng >= -141 && lng <= -52) {
+      country = 'Canada';
+      state = 'Canadian Territory';
+      place = 'North America';
+    }
+    // Russia
+    else if (lat >= 41 && lat <= 82 && lng >= 19 && lng <= 180) {
+      country = 'Russia';
+      state = 'Russian Federation';
+      place = 'Eurasia';
+    }
+    else {
+      country = 'International Airspace';
+      state = 'Unidentified Region';
       place = 'Remote Area';
     }
     
@@ -1414,11 +1602,11 @@ class WebSocketClient {
         aircraft.totalDistanceCovered = (aircraft.totalDistanceCovered || 0) + distanceMoved;
       }
       
-      // Update aircraft position
-      aircraft.lat = currentLat;
-      aircraft.lng = currentLng;
+      // Update aircraft position and clamp to India boundaries
+      aircraft.lat = this.clampToIndiaBounds(currentLat, 'lat');
+      aircraft.lng = this.clampToIndiaBounds(currentLng, 'lng');
       aircraft.heading = currentHeading;
-      aircraft.lastPosition = { lat: currentLat, lng: currentLng };
+      aircraft.lastPosition = { lat: aircraft.lat, lng: aircraft.lng };
       
       // Update visual position
       this.updateAircraftVisualPosition(aircraftId);
@@ -1431,8 +1619,8 @@ class WebSocketClient {
         this.applyPanOffset(visualizationArea);
       }
       
-      // Auto-adjust view to show all aircraft
-      this.adjustViewForAllAircraft();
+      // Auto-adjust view disabled - zoom level stays fixed
+      // this.adjustViewForAllAircraft();
       
       // Map updates are handled by periodic smooth updates
       
@@ -1505,6 +1693,10 @@ class WebSocketClient {
     }
     if (!centerAircraft) return;
 
+    // Clamp aircraft position to India boundaries for map
+    const clampedLat = this.clampToIndiaBounds(centerAircraft.lat, 'lat');
+    const clampedLng = this.clampToIndiaBounds(centerAircraft.lng, 'lng');
+
     const existingMap = visualizationArea.querySelector('#map-background') as HTMLElement;
     
     if (!existingMap) {
@@ -1514,19 +1706,19 @@ class WebSocketClient {
     }
 
     // Get stored center position (the original center when map was created)
-    const storedLat = parseFloat(existingMap.getAttribute('data-center-lat') || centerAircraft.lat.toString());
-    const storedLng = parseFloat(existingMap.getAttribute('data-center-lng') || centerAircraft.lng.toString());
+    const storedLat = parseFloat(existingMap.getAttribute('data-center-lat') || clampedLat.toString());
+    const storedLng = parseFloat(existingMap.getAttribute('data-center-lng') || clampedLng.toString());
     
     // If no stored position, set it now
     if (!existingMap.getAttribute('data-center-lat')) {
-      existingMap.setAttribute('data-center-lat', centerAircraft.lat.toString());
-      existingMap.setAttribute('data-center-lng', centerAircraft.lng.toString());
+      existingMap.setAttribute('data-center-lat', clampedLat.toString());
+      existingMap.setAttribute('data-center-lng', clampedLng.toString());
       return;
     }
     
-    // Calculate how much the center aircraft has moved in degrees
-    const latDiff = centerAircraft.lat - storedLat;
-    const lngDiff = centerAircraft.lng - storedLng;
+    // Calculate how much the center aircraft has moved in degrees (using clamped positions)
+    const latDiff = clampedLat - storedLat;
+    const lngDiff = clampedLng - storedLng;
     
     // Convert degree movement to pixel movement (Web Mercator projection)
     const zoom = Math.max(1, Math.min(18, 6 - Math.log2(this.zoomLevel)));
@@ -1536,28 +1728,23 @@ class WebSocketClient {
     // Calculate pixel offset for smooth panning
     // Web Mercator: pixels per degree varies with latitude
     const pixelsPerDegreeLat = (scale * tileSize) / 360;
-    const centerLatRad = (centerAircraft.lat * Math.PI) / 180;
+    const centerLatRad = (clampedLat * Math.PI) / 180;
     const pixelsPerDegreeLng = (scale * tileSize * Math.cos(centerLatRad)) / 360;
     
     // Calculate pixel offsets (inverted because we move map opposite to aircraft movement)
     const pixelOffsetX = -lngDiff * pixelsPerDegreeLng;
     const pixelOffsetY = latDiff * pixelsPerDegreeLat; // Positive because screen Y is inverted
     
-    // Log significant movements for debugging
-    if (Math.abs(pixelOffsetX) > 1 || Math.abs(pixelOffsetY) > 1) {
-      console.log(`🗺️ Map tracking: Aircraft at ${centerAircraft.lat.toFixed(6)}, ${centerAircraft.lng.toFixed(6)} | Offset: ${pixelOffsetX.toFixed(1)}px, ${pixelOffsetY.toFixed(1)}px`);
-    }
-    
-    // Apply smooth CSS transform to shift the map
-    existingMap.style.transition = 'transform 0.05s linear';
+    // Apply smooth CSS transform to shift the map with visible transition
+    existingMap.style.transition = 'transform 0.03s linear';
     existingMap.style.transform = `translate(${pixelOffsetX}px, ${pixelOffsetY}px)`;
     
-    // Rebuild map if aircraft moved significantly (threshold ~500 meters)
+    // Rebuild map if moved moderately far (balanced threshold for smooth transitions)
     const distanceMoved = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
-    const rebuildThreshold = 0.005; // ~500 meters = 0.005 degrees
+    const rebuildThreshold = 0.3; // ~33km = 0.3 degrees (balanced for smooth visible movement)
     
     if (distanceMoved > rebuildThreshold) {
-      console.log(`🗺️ Aircraft moved ${(distanceMoved * 111000).toFixed(0)}m, rebuilding map at new center`);
+      console.log(`🗺️ Aircraft moved ${(distanceMoved * 111).toFixed(0)}km, rebuilding map at new center (India)`);
       // Reset transform and rebuild map at new center
       existingMap.style.transition = 'none';
       existingMap.style.transform = 'translate(0, 0)';
@@ -1573,10 +1760,10 @@ class WebSocketClient {
     const existingMap = visualizationArea.querySelector('#map-background') as HTMLElement;
     if (!existingMap) return;
 
-    // Calculate new tile positions based on current aircraft position
+    // Calculate new tile positions based on current aircraft position (clamped to India)
     const zoomLevel = Math.max(1, Math.min(8, 6 - Math.log2(this.zoomLevel)));
-    const lat = centerAircraft.lat;
-    const lng = centerAircraft.lng;
+    const lat = this.clampToIndiaBounds(centerAircraft.lat, 'lat');
+    const lng = this.clampToIndiaBounds(centerAircraft.lng, 'lng');
     
     // Update tile positions smoothly
     const tiles = existingMap.querySelectorAll('div');
@@ -1640,14 +1827,14 @@ class WebSocketClient {
       margin-right: 60px;
       margin-bottom: 60px;
       box-sizing: border-box;
-      cursor: grab;
+      cursor: default;
       user-select: none;
     `;
 
     container.appendChild(visualizationArea);
 
-    // Add drag functionality to visualization area
-    this.addDragFunctionality(visualizationArea);
+    // Drag functionality disabled
+    // this.addDragFunctionality(visualizationArea);
 
     // Create SVG overlay for connection lines
     const svgOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1739,8 +1926,14 @@ class WebSocketClient {
       // Add data attribute for updates
       aircraftElement.setAttribute('data-aircraft-id', id);
       
-      // Apply aircraft-specific styling
-      this.updateAircraftThreatStatus(aircraftElement, aircraft);
+      // Apply extra styling for threat aircraft to make them more visible
+      if (aircraft.aircraftType === 'threat') {
+        aircraftElement.style.filter = 'brightness(1.5)';
+        const iconContainer = aircraftElement.querySelector('[data-icon-type="threat"]') as HTMLElement;
+        if (iconContainer) {
+          iconContainer.style.animation = 'pulse 1s infinite';
+        }
+      }
       
       visualizationArea.appendChild(aircraftElement);
     });
@@ -2411,8 +2604,8 @@ class WebSocketClient {
     const aircraftElement = document.createElement('div');
     aircraftElement.className = 'aircraft-marker'; // Add class for easier styling
     
-    // Fixed small size for all aircraft icons - no zoom scaling
-    const fixedSize = 20; // Fixed 20px size for all aircraft icons
+    // Threat aircraft get larger icons for better visibility
+    const fixedSize = aircraft.aircraftType === 'threat' ? 24 : 20; // Threats are 24px, others 20px
     const glowSize = fixedSize + 6;
     
     // Base styling for all aircraft - ensure visibility
@@ -2581,23 +2774,30 @@ class WebSocketClient {
     switch (aircraftType) {
       case 'mother':
         fallbackElement.textContent = 'M';
+        fallbackElement.setAttribute('data-icon-type', 'mother');
         break;
       case 'self':
         fallbackElement.textContent = '★'; // Star for self aircraft
+        fallbackElement.setAttribute('data-icon-type', 'self');
         break;
       case 'friendly':
         fallbackElement.textContent = 'F';
+        fallbackElement.setAttribute('data-icon-type', 'friendly');
         break;
       case 'threat':
         fallbackElement.textContent = '⚠'; // Warning symbol for threats
+        fallbackElement.setAttribute('data-icon-type', 'threat');
+        console.log(`⚠️ Creating THREAT icon with warning symbol`);
         break;
       default:
         fallbackElement.textContent = '?';
+        fallbackElement.setAttribute('data-icon-type', 'unknown');
         break;
     }
 
     container.appendChild(fallbackElement);
-    console.log(`✅ Created fallback icon for ${aircraftType}`);
+    console.log(`✅ Created fallback icon for ${aircraftType}, symbol: "${fallbackElement.textContent}", color: ${color}`);
+    console.log(`🔍 Fallback element:`, fallbackElement);
   }
 
   private getAircraftColor(aircraftType: AircraftType): string {
@@ -2639,6 +2839,38 @@ class WebSocketClient {
     const totalDistance = aircraft.totalDistanceCovered || 0;
     const distanceMach = aircraft.speed / 661.5; // Convert speed to Mach
     
+    // Threat action buttons (Lock and Execute)
+    const threatActions = aircraft.aircraftType === 'threat' ? `
+      <hr style="border: 1px solid #555; margin: 15px 0;">
+      <div style="background: rgba(255, 68, 68, 0.2); padding: 10px; border-radius: 5px; border: 1px solid #ff4444;">
+        <div style="color: #ff4444; font-weight: bold; margin-bottom: 10px;">⚠️ THREAT ACTIONS</div>
+        <div style="display: flex; gap: 10px;">
+          <button id="lock-threat-btn" style="
+            background: #ff8800;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            flex: 1;
+            transition: all 0.3s;
+          ">🎯 LOCK TARGET</button>
+          <button id="execute-threat-btn" style="
+            background: #ff0000;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            flex: 1;
+            transition: all 0.3s;
+          ">💥 EXECUTE</button>
+        </div>
+      </div>
+    ` : '';
+    
     details.innerHTML = `
       <h3 style="margin-top: 0; color: ${typeColor};">Aircraft Details</h3>
       <div><strong>Call Sign:</strong> ${aircraft.callSign}</div>
@@ -2660,6 +2892,7 @@ class WebSocketClient {
       <div style="margin-left: 20px; color: #aaa; font-size: 12px;">
         (${(totalDistance * 1.151).toFixed(2)} miles / ${(totalDistance * 1.852).toFixed(2)} km)
       </div>
+      ${threatActions}
       <button onclick="this.parentElement.remove()" style="
         background: #555;
         color: white;
@@ -2672,6 +2905,144 @@ class WebSocketClient {
     `;
     
     document.body.appendChild(details);
+    
+    // Add event listeners for threat actions if this is a threat aircraft
+    if (aircraft.aircraftType === 'threat') {
+      const lockBtn = document.getElementById('lock-threat-btn');
+      const executeBtn = document.getElementById('execute-threat-btn');
+      
+      if (lockBtn) {
+        lockBtn.addEventListener('mouseenter', () => {
+          lockBtn.style.background = '#ffaa00';
+          lockBtn.style.transform = 'scale(1.05)';
+        });
+        lockBtn.addEventListener('mouseleave', () => {
+          lockBtn.style.background = '#ff8800';
+          lockBtn.style.transform = 'scale(1)';
+        });
+        lockBtn.addEventListener('click', () => {
+          this.lockThreat(aircraft);
+          details.remove();
+        });
+      }
+      
+      if (executeBtn) {
+        executeBtn.addEventListener('mouseenter', () => {
+          executeBtn.style.background = '#ff3333';
+          executeBtn.style.transform = 'scale(1.05)';
+        });
+        executeBtn.addEventListener('mouseleave', () => {
+          executeBtn.style.background = '#ff0000';
+          executeBtn.style.transform = 'scale(1)';
+        });
+        executeBtn.addEventListener('click', () => {
+          this.executeThreat(aircraft);
+          details.remove();
+        });
+      }
+    }
+  }
+
+  private lockThreat(aircraft: Aircraft) {
+    console.log(`🎯 LOCKING TARGET: ${aircraft.callSign}`);
+    
+    // Create lock notification
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 136, 0, 0.95);
+      color: white;
+      padding: 20px 30px;
+      border-radius: 8px;
+      border: 2px solid #ffaa00;
+      font-family: monospace;
+      font-size: 16px;
+      font-weight: bold;
+      z-index: 2000;
+      text-align: center;
+      box-shadow: 0 0 20px rgba(255, 136, 0, 0.5);
+    `;
+    notification.innerHTML = `
+      🎯 TARGET LOCKED<br>
+      <span style="font-size: 14px;">${aircraft.callSign}</span><br>
+      <span style="font-size: 12px; color: #ffff00;">Tracking active</span>
+    `;
+    document.body.appendChild(notification);
+    
+    // Mark aircraft as locked (visual indicator)
+    const aircraftElement = document.querySelector(`[data-aircraft-id="${aircraft.id}"]`) as HTMLElement;
+    if (aircraftElement) {
+      aircraftElement.style.boxShadow = '0 0 30px #ffaa00, 0 0 50px #ff8800';
+      aircraftElement.style.border = '3px solid #ffaa00';
+    }
+    
+    // Remove notification after 2 seconds
+    setTimeout(() => {
+      notification.remove();
+    }, 2000);
+    
+    console.log(`✅ Target ${aircraft.callSign} locked successfully`);
+  }
+
+  private executeThreat(aircraft: Aircraft) {
+    console.log(`💥 EXECUTING TARGET: ${aircraft.callSign}`);
+    
+    // Create execute notification
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 0, 0, 0.95);
+      color: white;
+      padding: 20px 30px;
+      border-radius: 8px;
+      border: 2px solid #ff0000;
+      font-family: monospace;
+      font-size: 16px;
+      font-weight: bold;
+      z-index: 2000;
+      text-align: center;
+      box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+      animation: pulse 0.5s ease-in-out;
+    `;
+    notification.innerHTML = `
+      💥 TARGET ELIMINATED<br>
+      <span style="font-size: 14px;">${aircraft.callSign}</span><br>
+      <span style="font-size: 12px; color: #ffff00;">Threat neutralized</span>
+    `;
+    document.body.appendChild(notification);
+    
+    // Remove aircraft from the map
+    const aircraftElement = document.querySelector(`[data-aircraft-id="${aircraft.id}"]`) as HTMLElement;
+    if (aircraftElement) {
+      // Create explosion effect
+      aircraftElement.style.animation = 'explosion 0.5s ease-out';
+      setTimeout(() => {
+        aircraftElement.remove();
+      }, 500);
+    }
+    
+    // Remove aircraft from data
+    this.aircraft.delete(aircraft.id);
+    this.simulationSystem.activeThreats.delete(aircraft.id);
+    this.simulationSystem.engagementCount++;
+    
+    // Update UI to reflect removal
+    setTimeout(() => {
+      this.updateUI();
+    }, 600);
+    
+    // Remove notification after 2 seconds
+    setTimeout(() => {
+      notification.remove();
+    }, 2000);
+    
+    console.log(`✅ Target ${aircraft.callSign} eliminated successfully`);
   }
 
   private create2DGraph(visualizationArea: HTMLElement) {
@@ -2753,8 +3124,8 @@ class WebSocketClient {
 
     console.log(`📡 Maximum aircraft distance: ${maxDistance.toFixed(2)} units`);
 
-    // Auto-adjust zoom level to show all aircraft
-    this.adjustZoomForAllAircraft(maxDistance);
+    // Auto-adjust zoom disabled - zoom level stays fixed
+    // this.adjustZoomForAllAircraft(maxDistance);
 
     // Set minimum radar range and add buffer
     const minRadarRange = 20; // Minimum radar range
@@ -2859,8 +3230,8 @@ class WebSocketClient {
       maxDistance = Math.max(maxDistance, Math.abs(distance));
     });
 
-    // Auto-adjust zoom level to show all aircraft
-    this.adjustZoomForAllAircraft(maxDistance);
+    // Auto-adjust zoom disabled - zoom level stays fixed
+    // this.adjustZoomForAllAircraft(maxDistance);
   }
 
   private adjustZoomForAllAircraft(maxDistance: number) {
@@ -2956,11 +3327,11 @@ class WebSocketClient {
     // Calculate zoom level based on radar range (approximate)
     const zoomLevel = Math.max(1, Math.min(8, 6 - Math.log2(this.zoomLevel)));
     
-    // Store the EXACT center position for smooth tracking
-    const lat = centerAircraft.lat;
-    const lng = centerAircraft.lng;
+    // Store the EXACT center position for smooth tracking (clamped to India)
+    const lat = this.clampToIndiaBounds(centerAircraft.lat, 'lat');
+    const lng = this.clampToIndiaBounds(centerAircraft.lng, 'lng');
     
-    console.log(`🗺️ Creating map centered on: ${centerAircraft.callSign} at ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    console.log(`🗺️ Creating map centered on: ${centerAircraft.callSign} at ${lat.toFixed(6)}, ${lng.toFixed(6)} (India)`);
     console.log(`🗺️ Center mode: ${this.centerMode}, Aircraft type: ${centerAircraft.aircraftType}`);
     
     // Store map parameters for smooth updates
@@ -3001,7 +3372,10 @@ class WebSocketClient {
   }
 
   private createBlueMarbleTileMap(container: HTMLElement, centerLat: number, centerLng: number, zoom: number) {
-    console.log(`🗺️ Creating light map: lat=${centerLat}, lng=${centerLng}, zoom=${zoom}`);
+    // Ensure map stays within India boundaries
+    centerLat = this.clampToIndiaBounds(centerLat, 'lat');
+    centerLng = this.clampToIndiaBounds(centerLng, 'lng');
+    console.log(`🗺️ Creating light map (India): lat=${centerLat}, lng=${centerLng}, zoom=${zoom}`);
     
     // Use light map tiles with labels (states, cities, districts)
     const lightTileSources = [
@@ -3584,11 +3958,11 @@ class WebSocketClient {
     const storedLat = parseFloat(mapBackground.getAttribute('data-center-lat') || centerAircraft.lat.toString());
     const storedLng = parseFloat(mapBackground.getAttribute('data-center-lng') || centerAircraft.lng.toString());
     
-    // Calculate new geographic center based on pan offset
-    const newCenterLat = storedLat + geoOffsetLat;
-    const newCenterLng = storedLng + geoOffsetLng;
+    // Calculate new geographic center based on pan offset (clamped to India)
+    const newCenterLat = this.clampToIndiaBounds(storedLat + geoOffsetLat, 'lat');
+    const newCenterLng = this.clampToIndiaBounds(storedLng + geoOffsetLng, 'lng');
     
-    // Update the stored center position
+    // Update the stored center position (always within India)
     mapBackground.setAttribute('data-center-lat', newCenterLat.toString());
     mapBackground.setAttribute('data-center-lng', newCenterLng.toString());
   }
@@ -3732,24 +4106,20 @@ class WebSocketClient {
   }
 
   public sendMessage(message: string) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const messageData = {
-        type: 'message',
-        payload: {
-          id: this.nodeId,
-          message: message
-        }
-      };
-      this.ws.send(JSON.stringify(messageData));
-      console.log('Sent message:', messageData);
-    }
+    const messageData = {
+      type: 'message',
+      payload: {
+        id: this.nodeId,
+        message: message
+      }
+    };
+    console.log('📤 Local message:', messageData);
   }
 
   public disconnect() {
-    if (this.ws) {
-      this.ws.close();
-    }
-    // Location updates are now handled by server
+    console.log('🛑 Disconnecting and cleaning up...');
+    
+    // Clear all intervals and timeouts
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
@@ -3777,12 +4147,12 @@ class WebSocketClient {
   }
 }
 
-// Initialize WebSocket client when DOM is loaded
+// Initialize Tactical Display Client when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  const wsClient = new WebSocketClient();
+  const tacticalClient = new TacticalDisplayClient();
   
-  // Add some test functionality
+  // Add cleanup functionality
   window.addEventListener('beforeunload', () => {
-    wsClient.disconnect();
+    tacticalClient.disconnect();
   });
 });
