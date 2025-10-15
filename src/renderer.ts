@@ -1,4 +1,5 @@
 import './index.css';
+import mapboxgl from 'mapbox-gl';
 
 console.log(
   '👋 This message is being logged by "renderer.ts", included via Vite',
@@ -38,7 +39,50 @@ class TacticalDisplayClient {
   private motherAircraft: Aircraft | null = null; // Reference to mother aircraft for centering
   private showMap: boolean = true; // Toggle visibility of background map (enabled by default)
   private mapElement: HTMLElement | null = null; // Reference to map container
+  private mapboxMap: mapboxgl.Map | null = null; // Mapbox GL map instance
   private centerMode: 'mother' | 'self' = 'mother'; // Toggle between mother-centered and self-centered view
+  private mumbaiLocations = {
+    "Mumbai": {
+      "districts": [
+        {
+          "name": "Mumbai City",
+          "places": [
+            {"name": "Colaba", "lat": 18.9219, "lng": 72.8330},
+            {"name": "Cuffe Parade", "lat": 18.9210, "lng": 72.8250},
+            {"name": "Marine Drive", "lat": 18.9432, "lng": 72.8238},
+            {"name": "Fort", "lat": 18.9320, "lng": 72.8347},
+            {"name": "Churchgate", "lat": 18.9365, "lng": 72.8308},
+            {"name": "Byculla", "lat": 18.9812, "lng": 72.8312},
+            {"name": "Mazgaon", "lat": 18.9720, "lng": 72.8350},
+            {"name": "Breach Candy", "lat": 18.9818, "lng": 72.8216},
+            {"name": "Parel", "lat": 19.0044, "lng": 72.8406}
+          ]
+        },
+        {
+          "name": "Mumbai Suburban",
+          "places": [
+            {"name": "Andheri", "lat": 19.1196, "lng": 72.8469},
+            {"name": "Bandra", "lat": 19.0550, "lng": 72.8400},
+            {"name": "Borivali", "lat": 19.2293, "lng": 72.8566},
+            {"name": "Dahisar", "lat": 19.2813, "lng": 72.8599},
+            {"name": "Goregaon", "lat": 19.1640, "lng": 72.8493},
+            {"name": "Jogeshwari", "lat": 19.1350, "lng": 72.8496},
+            {"name": "Juhu", "lat": 19.0986, "lng": 72.8266},
+            {"name": "Kandivali", "lat": 19.2184, "lng": 72.8569},
+            {"name": "Kurla", "lat": 19.0666, "lng": 72.8793},
+            {"name": "Malad", "lat": 19.1856, "lng": 72.8486},
+            {"name": "Mulund", "lat": 19.1640, "lng": 72.9564},
+            {"name": "Santacruz", "lat": 19.0863, "lng": 72.8433},
+            {"name": "Vikhroli", "lat": 19.1251, "lng": 72.9279},
+            {"name": "Chembur", "lat": 19.0627, "lng": 72.9007},
+            {"name": "Bhandup", "lat": 19.1425, "lng": 72.9332},
+            {"name": "Powai", "lat": 19.1198, "lng": 72.9106},
+            {"name": "Sion", "lat": 19.0597, "lng": 72.8722}
+          ]
+        }
+      ]
+    }
+  };
   private showThreatDialog: boolean = true; // Toggle visibility of threat dialog
   private animationFrameId: number | null = null; // Track requestAnimationFrame ID
   private aircraftInterpolation: Map<string, {
@@ -102,47 +146,47 @@ class TacticalDisplayClient {
     console.log('🎮 Initializing tactical display with dummy data...');
     
     // Generate node ID
-    this.nodeId = this.generateId();
+      this.nodeId = this.generateId();
     
-    // Set initial location within India's boundaries
-    // India coordinates: Lat 8°N to 37°N, Lng 68°E to 97°E
-    // Starting near central India (around Nagpur/Madhya Pradesh region)
-    this.currentLat = 20.0 + Math.random() * 8.0; // 20°N to 28°N (Central to North India)
-    this.currentLng = 75.0 + Math.random() * 8.0; // 75°E to 83°E (Central India)
+    // Set initial location within Mumbai region
+    // Mumbai coordinates: Lat 18.9°N to 19.3°N, Lng 72.7°E to 73.1°E
+    // Starting in central Mumbai area
+    this.currentLat = 19.0 + Math.random() * 0.2; // 19.0°N to 19.2°N (Central Mumbai)
+    this.currentLng = 72.8 + Math.random() * 0.2; // 72.8°E to 73.0°E (Central Mumbai)
     
     // Create self aircraft
     const selfAircraft: Aircraft = {
-      id: this.nodeId,
-      status: 'connected',
-      info: 'F-35 Lightning II Client',
-      lat: this.currentLat,
-      lng: this.currentLng,
+          id: this.nodeId,
+          status: 'connected',
+          info: 'F-35 Lightning II Client',
+          lat: this.currentLat,
+          lng: this.currentLng,
       aircraftType: 'self',
-      callSign: `LIGHTNING-${Math.floor(Math.random() * 99) + 1}`,
-      altitude: 25000 + Math.floor(Math.random() * 10000),
-      heading: Math.floor(Math.random() * 360),
+          callSign: `LIGHTNING-${Math.floor(Math.random() * 99) + 1}`,
+          altitude: 25000 + Math.floor(Math.random() * 10000),
+          heading: Math.floor(Math.random() * 360),
       speed: this.getAircraftSpeed('self'),
       totalDistanceCovered: 0,
       lastPosition: { lat: this.currentLat, lng: this.currentLng }
-    };
-    
+      };
+      
     // Add self aircraft
     this.aircraft.set(this.nodeId, selfAircraft);
     console.log('✈️ Self aircraft created:', selfAircraft.callSign);
-    
+      
     // Generate dummy aircraft data
     this.generateDummyAircraft();
-    
+      
     console.log(`📊 Total aircraft initialized: ${this.aircraft.size}`);
-    
+      
     // Start all systems
-    this.startLocationUpdates();
-    this.startPeriodicMapUpdates();
-    this.startContinuousMovement();
-    this.startTacticalSimulation();
-    
+      this.startLocationUpdates();
+      this.startPeriodicMapUpdates();
+      this.startContinuousMovement();
+      this.startTacticalSimulation();
+      
     // Update UI to show all aircraft immediately
-    this.updateUI();
+      this.updateUI();
   }
 
   private generateDummyAircraft() {
@@ -166,9 +210,9 @@ class TacticalDisplayClient {
     };
     
     this.addAircraft(motherAircraft);
-    console.log('🎯 Mother aircraft created:', motherAircraft.callSign, `at ${motherLat.toFixed(2)}°N, ${motherLng.toFixed(2)}°E (India)`);
+    console.log('🎯 Mother aircraft created:', motherAircraft.callSign, `at ${motherLat.toFixed(2)}°N, ${motherLng.toFixed(2)}°E (Mumbai)`);
     
-    // Create exactly 4 friendly aircraft positioned around the center within India
+    // Create exactly 4 friendly aircraft positioned around the center within Mumbai
     const friendlyCount = 4;
     for (let i = 0; i < friendlyCount; i++) {
       // Distribute friendly aircraft in different directions for better visibility
@@ -195,10 +239,10 @@ class TacticalDisplayClient {
       };
       
       this.addAircraft(friendlyAircraft);
-      console.log('🤝 Friendly aircraft created:', friendlyAircraft.callSign, `at ${friendlyLat.toFixed(2)}°N, ${friendlyLng.toFixed(2)}°E (India)`);
+      console.log('🤝 Friendly aircraft created:', friendlyAircraft.callSign, `at ${friendlyLat.toFixed(2)}°N, ${friendlyLng.toFixed(2)}°E (Mumbai)`);
     }
     
-    // Create exactly 4 threat aircraft positioned around the center within India
+    // Create exactly 4 threat aircraft positioned around the center within Mumbai
     const threatCount = 4;
     for (let i = 0; i < threatCount; i++) {
       // Distribute threat aircraft in different directions, offset from friendly
@@ -226,18 +270,18 @@ class TacticalDisplayClient {
       
       this.addAircraft(threatAircraft);
       this.simulationSystem.activeThreats.add(threatAircraft.id);
-      console.log('⚠️ Threat aircraft created:', threatAircraft.callSign, `at ${threatLat.toFixed(2)}°N, ${threatLng.toFixed(2)}°E (India)`);
+      console.log('⚠️ Threat aircraft created:', threatAircraft.callSign, `at ${threatLat.toFixed(2)}°N, ${threatLng.toFixed(2)}°E (Mumbai)`);
     }
   }
 
   private clampToIndiaBounds(value: number, type: 'lat' | 'lng'): number {
-    // India's geographical boundaries
-    // Latitude: 8°N (southernmost) to 37°N (northernmost)
-    // Longitude: 68°E (westernmost) to 97°E (easternmost)
+    // Mumbai region boundaries (Greater Mumbai area)
+    // Latitude: 18.9°N to 19.3°N (Mumbai region)
+    // Longitude: 72.7°E to 73.1°E (Mumbai region)
     if (type === 'lat') {
-      return Math.max(8, Math.min(37, value));
+      return Math.max(18.9, Math.min(19.3, value));
     } else {
-      return Math.max(68, Math.min(97, value));
+      return Math.max(72.7, Math.min(73.1, value));
     }
   }
 
@@ -838,75 +882,25 @@ class TacticalDisplayClient {
   private startHeartbeat() {
     // Local heartbeat (no network communication needed)
     this.heartbeatInterval = setInterval(() => {
-      const heartbeatData = {
-        type: 'heartbeat',
-        payload: {
-          id: this.nodeId,
-          timestamp: Date.now(),
-          status: 'connected'
-        }
-      };
+        const heartbeatData = {
+          type: 'heartbeat',
+          payload: {
+            id: this.nodeId,
+            timestamp: Date.now(),
+            status: 'connected'
+          }
+        };
       console.log('💓 Heartbeat:', heartbeatData);
     }, 5000); // Log heartbeat every 5 seconds
   }
 
   private startLocationUpdates() {
-    // Local location updates (no network communication needed)
-    const sendLocationUpdate = () => {
-      const selfAircraft = this.aircraft.get(this.nodeId);
-      if (selfAircraft) {
-        // Calculate movement based on current speed and heading
-        const speedKnots = selfAircraft.speed;
-        const headingRad = (selfAircraft.heading * Math.PI) / 180;
-        
-        // Convert speed from knots to degrees per second (realistic visible movement)
-        // 1 knot = 1.852 km/h = 0.514 m/s
-        // At equator: 1 degree ≈ 111,320 meters
-        // So 1 knot ≈ 0.514 / 111,320 ≈ 0.00000462 degrees per second
-        // Multiply by 100 for fast, realistic aircraft movement
-        const speedDegreesPerSecond = speedKnots * 0.00000462 * 100;
-        
-        // Calculate movement in lat/lng based on heading
-        // For latitude: movement is directly proportional to cos(heading)
-        // For longitude: movement is proportional to sin(heading) but also depends on latitude
-        const latMovement = Math.cos(headingRad) * speedDegreesPerSecond;
-        const lngMovement = Math.sin(headingRad) * speedDegreesPerSecond / Math.cos(selfAircraft.lat * Math.PI / 180);
-        
-        // Apply movement
-        selfAircraft.lat += latMovement;
-        selfAircraft.lng += lngMovement;
-        
-        // Add some random variation to make movement more realistic (larger movements for visibility)
-        selfAircraft.lat += (Math.random() - 0.5) * 0.0002;
-        selfAircraft.lng += (Math.random() - 0.5) * 0.0002;
-        
-        // Clamp to India boundaries
-        selfAircraft.lat = this.clampToIndiaBounds(selfAircraft.lat, 'lat');
-        selfAircraft.lng = this.clampToIndiaBounds(selfAircraft.lng, 'lng');
-        
-        // Update heading and speed more frequently for larger movements
-        if (Math.random() < 0.1) { // 10% chance for more frequent heading changes
-          selfAircraft.heading = (selfAircraft.heading + (Math.random() - 0.5) * 20 + 360) % 360; // Larger heading changes
-        }
-        if (Math.random() < 0.05) { // 5% chance for more frequent speed changes
-          selfAircraft.speed += (Math.random() - 0.5) * 50; // Larger speed changes
-          selfAircraft.speed = Math.max(200, Math.min(800, selfAircraft.speed));
-        }
-        
-        console.log(`📡 Local location update: ${selfAircraft.callSign} at ${selfAircraft.lat.toFixed(6)}°N, ${selfAircraft.lng.toFixed(6)}°E (India) | Speed: ${selfAircraft.speed}kts, Hdg: ${selfAircraft.heading}°`);
-      }
-      
-      // Schedule next update with random interval between 100ms and 1s for realistic movement
-      const nextInterval = 100 + Math.random() * 900; // 100ms to 1000ms
-      setTimeout(sendLocationUpdate, nextInterval);
-    };
-    
-    // Start the first update
-    sendLocationUpdate();
+    // Aircraft location updates disabled - keeping all aircraft in fixed positions
+    console.log('📍 Aircraft location updates disabled - all aircraft remain in fixed positions');
   }
 
   private startPeriodicMapUpdates() {
-    // Force map updates every 16ms for ultra-smooth continuous tracking (60fps)
+    // Update map viewpoint regularly while keeping aircraft nodes fixed
     this.mapUpdateInterval = setInterval(() => {
       if (this.showMap) {
         const visualizationArea = document.getElementById('visualization-area');
@@ -914,34 +908,20 @@ class TacticalDisplayClient {
           this.updateMapPositionSmooth(visualizationArea);
         }
       }
-    }, 16); // Update every 16ms for 60fps smooth movement tracking like aircraft
+    }, 800); // Update every 800ms for very slow map viewpoint movement
   }
 
   private startContinuousMovement() {
-    // Use requestAnimationFrame for smooth, efficient movement updates
-    const animate = () => {
-      this.updateContinuousMovement();
-      this.animationFrameId = requestAnimationFrame(animate);
-    };
-    this.animationFrameId = requestAnimationFrame(animate);
+    // Continuous movement disabled - aircraft remain in fixed positions
+    console.log('📍 Continuous movement disabled - aircraft remain static');
   }
 
   private startTacticalSimulation() {
-    this.simulationSystem.isRunning = true;
-    this.simulationSystem.startTime = Date.now();
-    this.simulationSystem.lastPhaseChange = Date.now();
-    this.simulationSystem.lastThreatSpawn = Date.now();
-    
-    console.log('🎯 Starting 2.5-minute tactical simulation');
-    
-    // Create simulation UI
-    this.createSimulationUI();
+    // Tactical simulation disabled - aircraft remain in fixed positions
+    console.log('📍 Tactical simulation disabled - aircraft remain static');
     
     // Create location display
     this.createLocationDisplay();
-    
-    // Start simulation loop
-    this.runSimulationLoop();
   }
 
   private runSimulationLoop() {
@@ -1447,11 +1427,17 @@ class TacticalDisplayClient {
       state = 'Arab Republic of Egypt';
       place = 'Nile Region';
     }
-    // India
+    // India - Mumbai region with specific location names
     else if (lat >= 8 && lat <= 35 && lng >= 68 && lng <= 97) {
       country = 'India';
-      state = 'Republic of India';
-      place = 'Indian Subcontinent';
+      state = 'Maharashtra';
+      
+      // Check if within Mumbai region and find specific location
+      if (lat >= 18.9 && lat <= 19.3 && lng >= 72.7 && lng <= 73.1) {
+        place = this.findNearestMumbaiLocation(lat, lng);
+      } else {
+        place = 'Indian Subcontinent';
+      }
     }
     // China
     else if (lat >= 18 && lat <= 54 && lng >= 73 && lng <= 135) {
@@ -1571,80 +1557,20 @@ class TacticalDisplayClient {
   }
 
   private updateContinuousMovement() {
-    const now = Date.now();
-    let anyAircraftMoved = false;
+    // Continuous movement disabled - aircraft remain in fixed positions
+    // Only update connection lines to maintain visual relationships
     
-    this.aircraftInterpolation.forEach((interpolation, aircraftId) => {
-      const aircraft = this.aircraft.get(aircraftId);
-      if (!aircraft) return;
-
-      const elapsed = now - interpolation.startTime;
-      const progress = Math.min(elapsed / interpolation.duration, 1);
-      
-      // Use easing function for smooth movement
-      const easedProgress = this.easeInOutCubic(progress);
-      
-      // Interpolate position
-      const currentLat = interpolation.startLat + (interpolation.targetLat - interpolation.startLat) * easedProgress;
-      const currentLng = interpolation.startLng + (interpolation.targetLng - interpolation.startLng) * easedProgress;
-      
-      // Interpolate heading
-      const currentHeading = this.interpolateHeading(interpolation.startHeading, interpolation.targetHeading, easedProgress);
-      
-      // Calculate distance covered from last position
-      if (aircraft.lastPosition) {
-        const distanceMoved = this.calculateDistance(
-          aircraft.lastPosition.lat, 
-          aircraft.lastPosition.lng, 
-          currentLat, 
-          currentLng
-        );
-        aircraft.totalDistanceCovered = (aircraft.totalDistanceCovered || 0) + distanceMoved;
+    const visualizationArea = document.getElementById('visualization-area');
+    if (visualizationArea) {
+      let centerAircraft: Aircraft | null = null;
+      if (this.centerMode === 'mother') {
+        centerAircraft = this.motherAircraft || this.aircraft.get(this.nodeId);
+      } else {
+        centerAircraft = this.aircraft.get(this.nodeId) || this.motherAircraft;
       }
       
-      // Update aircraft position and clamp to India boundaries
-      aircraft.lat = this.clampToIndiaBounds(currentLat, 'lat');
-      aircraft.lng = this.clampToIndiaBounds(currentLng, 'lng');
-      aircraft.heading = currentHeading;
-      aircraft.lastPosition = { lat: aircraft.lat, lng: aircraft.lng };
-      
-      // Update visual position
-      this.updateAircraftVisualPosition(aircraftId);
-      
-      anyAircraftMoved = true;
-      
-      // Apply current pan offset to maintain position during dragging
-      const visualizationArea = document.getElementById('visualization-area');
-      if (visualizationArea) {
-        this.applyPanOffset(visualizationArea);
-      }
-      
-      // Auto-adjust view disabled - zoom level stays fixed
-      // this.adjustViewForAllAircraft();
-      
-      // Map updates are handled by periodic smooth updates
-      
-      // Remove completed interpolations
-      if (progress >= 1) {
-        this.aircraftInterpolation.delete(aircraftId);
-      }
-    });
-    
-    // Update connection lines and distances periodically (every 100ms for smooth updates)
-    if (anyAircraftMoved && (now - this.lastDistanceUpdate) > 100) {
-      this.lastDistanceUpdate = now;
-      const visualizationArea = document.getElementById('visualization-area');
-      if (visualizationArea) {
-        let centerAircraft: Aircraft | null = null;
-        if (this.centerMode === 'mother') {
-          centerAircraft = this.motherAircraft || this.aircraft.get(this.nodeId);
-        } else {
-          centerAircraft = this.aircraft.get(this.nodeId) || this.motherAircraft;
-        }
-        
-        if (centerAircraft) {
-          this.drawConnectionLines(visualizationArea, centerAircraft);
-        }
+      if (centerAircraft) {
+        this.drawConnectionLines(visualizationArea, centerAircraft);
       }
     }
   }
@@ -1684,108 +1610,45 @@ class TacticalDisplayClient {
   }
 
   private updateMapPositionSmooth(visualizationArea: HTMLElement) {
-    // Smooth map updates without recreating tiles - just translate the entire map
-    let centerAircraft: Aircraft | null = null;
-    if (this.centerMode === 'mother') {
-      centerAircraft = this.motherAircraft || this.aircraft.get(this.nodeId);
-    } else {
-      centerAircraft = this.aircraft.get(this.nodeId) || this.motherAircraft;
-    }
-    if (!centerAircraft) return;
-
-    // Clamp aircraft position to India boundaries for map
-    const clampedLat = this.clampToIndiaBounds(centerAircraft.lat, 'lat');
-    const clampedLng = this.clampToIndiaBounds(centerAircraft.lng, 'lng');
-
-    const existingMap = visualizationArea.querySelector('#map-background') as HTMLElement;
-    
-    if (!existingMap) {
+    // Update map viewpoint regularly while keeping aircraft nodes fixed
+    if (!this.mapboxMap) {
       // Create map for the first time if it doesn't exist
       this.createMapBackground(visualizationArea);
       return;
     }
 
-    // Get stored center position (the original center when map was created)
-    const storedLat = parseFloat(existingMap.getAttribute('data-center-lat') || clampedLat.toString());
-    const storedLng = parseFloat(existingMap.getAttribute('data-center-lng') || clampedLng.toString());
+    // Generate regular map viewpoint movement within Mumbai boundaries
+    const time = Date.now() * 0.0001; // Slow time factor for smooth movement
     
-    // If no stored position, set it now
-    if (!existingMap.getAttribute('data-center-lat')) {
-      existingMap.setAttribute('data-center-lat', clampedLat.toString());
-      existingMap.setAttribute('data-center-lng', clampedLng.toString());
-      return;
-    }
+    // Create a circular/elliptical movement pattern for the map viewpoint
+    const centerLat = 19.1; // Central Mumbai latitude
+    const centerLng = 72.9; // Central Mumbai longitude
+    const radiusLat = 0.15; // Movement radius in latitude (Mumbai area)
+    const radiusLng = 0.15; // Movement radius in longitude (Mumbai area)
     
-    // Calculate how much the center aircraft has moved in degrees (using clamped positions)
-    const latDiff = clampedLat - storedLat;
-    const lngDiff = clampedLng - storedLng;
+    // Calculate new map center position with smooth circular movement
+    const newLat = centerLat + Math.sin(time) * radiusLat;
+    const newLng = centerLng + Math.cos(time * 0.7) * radiusLng; // Different frequency for elliptical pattern
     
-    // Convert degree movement to pixel movement (Web Mercator projection)
-    const zoom = Math.max(1, Math.min(18, 6 - Math.log2(this.zoomLevel)));
-    const scale = Math.pow(2, zoom);
-    const tileSize = 256;
+    // Clamp to Mumbai boundaries
+    const clampedLat = this.clampToIndiaBounds(newLat, 'lat');
+    const clampedLng = this.clampToIndiaBounds(newLng, 'lng');
+
+    // Smoothly pan map to new viewpoint position
+    this.mapboxMap.easeTo({
+      center: [clampedLng, clampedLat],
+      duration: 200, // Smooth movement duration
+      essential: true
+    });
     
-    // Calculate pixel offset for smooth panning
-    // Web Mercator: pixels per degree varies with latitude
-    const pixelsPerDegreeLat = (scale * tileSize) / 360;
-    const centerLatRad = (clampedLat * Math.PI) / 180;
-    const pixelsPerDegreeLng = (scale * tileSize * Math.cos(centerLatRad)) / 360;
+    // Location labels removed - only showing in dialog
     
-    // Calculate pixel offsets (inverted because we move map opposite to aircraft movement)
-    const pixelOffsetX = -lngDiff * pixelsPerDegreeLng;
-    const pixelOffsetY = latDiff * pixelsPerDegreeLat; // Positive because screen Y is inverted
-    
-    // Apply smooth CSS transform to shift the map with visible transition
-    existingMap.style.transition = 'transform 0.03s linear';
-    existingMap.style.transform = `translate(${pixelOffsetX}px, ${pixelOffsetY}px)`;
-    
-    // Rebuild map if moved moderately far (balanced threshold for smooth transitions)
-    const distanceMoved = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
-    const rebuildThreshold = 0.3; // ~33km = 0.3 degrees (balanced for smooth visible movement)
-    
-    if (distanceMoved > rebuildThreshold) {
-      console.log(`🗺️ Aircraft moved ${(distanceMoved * 111).toFixed(0)}km, rebuilding map at new center (India)`);
-      // Reset transform and rebuild map at new center
-      existingMap.style.transition = 'none';
-      existingMap.style.transform = 'translate(0, 0)';
-      existingMap.remove();
-      this.createMapBackground(visualizationArea);
-    }
+    console.log(`🗺️ Map viewpoint updated: ${clampedLat.toFixed(6)}°N, ${clampedLng.toFixed(6)}°E (Mumbai)`);
   }
 
   // Removed artificial continuous movement - aircraft now move naturally based on real position updates
 
-  private updateMapTilesOnly(visualizationArea: HTMLElement, centerAircraft: Aircraft) {
-    // For small movements, just update the tile positions without recreating the entire map
-    const existingMap = visualizationArea.querySelector('#map-background') as HTMLElement;
-    if (!existingMap) return;
-
-    // Calculate new tile positions based on current aircraft position (clamped to India)
-    const zoomLevel = Math.max(1, Math.min(8, 6 - Math.log2(this.zoomLevel)));
-    const lat = this.clampToIndiaBounds(centerAircraft.lat, 'lat');
-    const lng = this.clampToIndiaBounds(centerAircraft.lng, 'lng');
-    
-    // Update tile positions smoothly
-    const tiles = existingMap.querySelectorAll('div');
-    tiles.forEach(tile => {
-      if (tile.style.backgroundImage) {
-        // Calculate new position for this tile
-        const tileX = parseFloat(tile.style.left) || 0;
-        const tileY = parseFloat(tile.style.top) || 0;
-        
-        // Apply position adjustments based on aircraft movement (larger multiplier for more responsive updates)
-        const adjustmentX = (lng - parseFloat(existingMap.getAttribute('data-center-lng') || '0')) * 2000000;
-        const adjustmentY = (lat - parseFloat(existingMap.getAttribute('data-center-lat') || '0')) * 2000000;
-        
-        tile.style.left = `${tileX + adjustmentX}px`;
-        tile.style.top = `${tileY - adjustmentY}px`;
-      }
-    });
-    
-    // Update stored center position
-    existingMap.setAttribute('data-center-lat', lat.toString());
-    existingMap.setAttribute('data-center-lng', lng.toString());
-  }
+  // Mapbox GL handles tile updates automatically - no need for manual tile management
 
   private updateUI() {
     const container = document.getElementById('nodes-container');
@@ -2946,6 +2809,25 @@ class TacticalDisplayClient {
   private lockThreat(aircraft: Aircraft) {
     console.log(`🎯 LOCKING TARGET: ${aircraft.callSign}`);
     
+    // Change lock button icon to show locked state
+    const lockButtons = document.querySelectorAll('button');
+    lockButtons.forEach(button => {
+      if (button.textContent?.includes('LOCK')) {
+        button.textContent = '🔒 LOCKED';
+        button.style.background = '#00ff00';
+        button.style.color = '#000000';
+        button.style.fontWeight = 'bold';
+        
+        // Reset button after 3 seconds
+        setTimeout(() => {
+          button.textContent = '🎯 LOCK';
+          button.style.background = '#ff8800';
+          button.style.color = '#ffffff';
+          button.style.fontWeight = 'normal';
+        }, 3000);
+      }
+    });
+    
     // Create lock notification
     const notification = document.createElement('div');
     notification.style.cssText = `
@@ -2990,6 +2872,25 @@ class TacticalDisplayClient {
   private executeThreat(aircraft: Aircraft) {
     console.log(`💥 EXECUTING TARGET: ${aircraft.callSign}`);
     
+    // Change execute button icon to show executed state
+    const executeButtons = document.querySelectorAll('button');
+    executeButtons.forEach(button => {
+      if (button.textContent?.includes('EXECUTE')) {
+        button.textContent = '✅ EXECUTED';
+        button.style.background = '#00ff00';
+        button.style.color = '#000000';
+        button.style.fontWeight = 'bold';
+        
+        // Reset button after 3 seconds
+        setTimeout(() => {
+          button.textContent = '💥 EXECUTE';
+          button.style.background = '#ff0000';
+          button.style.color = '#ffffff';
+          button.style.fontWeight = 'normal';
+        }, 3000);
+      }
+    });
+    
     // Create execute notification
     const notification = document.createElement('div');
     notification.style.cssText = `
@@ -3017,14 +2918,19 @@ class TacticalDisplayClient {
     `;
     document.body.appendChild(notification);
     
-    // Remove aircraft from the map
+    // Remove aircraft from the map with proper highlighting
     const aircraftElement = document.querySelector(`[data-aircraft-id="${aircraft.id}"]`) as HTMLElement;
     if (aircraftElement) {
-      // Create explosion effect
-      aircraftElement.style.animation = 'explosion 0.5s ease-out';
+      // Highlight the aircraft before removal
+      aircraftElement.style.boxShadow = '0 0 30px #ff0000, 0 0 50px #ff0000';
+      aircraftElement.style.border = '3px solid #ff0000';
+      aircraftElement.style.background = '#ff0000';
+      aircraftElement.style.opacity = '0.8';
+      
+      // Remove after highlighting
       setTimeout(() => {
         aircraftElement.remove();
-      }, 500);
+      }, 1000);
     }
     
     // Remove aircraft from data
@@ -3314,31 +3220,20 @@ class TacticalDisplayClient {
     }
     if (!centerAircraft) return;
 
-    // Check if map already exists - don't recreate, let smooth updates handle it
+    // Check if map already exists - don't recreate
     const existingMap = visualizationArea.querySelector('#map-background') as HTMLElement;
     if (existingMap) {
-      // Map exists, smooth updates will handle positioning
-        return;
+      return;
     }
 
     const mapContainer = document.createElement('div');
     mapContainer.id = 'map-background';
     
-    // Calculate zoom level based on radar range (approximate)
-    const zoomLevel = Math.max(1, Math.min(8, 6 - Math.log2(this.zoomLevel)));
-    
-    // Store the EXACT center position for smooth tracking (clamped to India)
+    // Store the EXACT center position for smooth tracking (clamped to Mumbai)
     const lat = this.clampToIndiaBounds(centerAircraft.lat, 'lat');
     const lng = this.clampToIndiaBounds(centerAircraft.lng, 'lng');
     
-    console.log(`🗺️ Creating map centered on: ${centerAircraft.callSign} at ${lat.toFixed(6)}, ${lng.toFixed(6)} (India)`);
-    console.log(`🗺️ Center mode: ${this.centerMode}, Aircraft type: ${centerAircraft.aircraftType}`);
-    
-    // Store map parameters for smooth updates
-    mapContainer.setAttribute('data-center-lat', lat.toString());
-    mapContainer.setAttribute('data-center-lng', lng.toString());
-    mapContainer.setAttribute('data-zoom-level', zoomLevel.toString());
-    mapContainer.setAttribute('data-center-mode', this.centerMode);
+    console.log(`🗺️ Creating Mapbox GL map centered on: ${centerAircraft.callSign} at ${lat.toFixed(6)}, ${lng.toFixed(6)} (Mumbai)`);
     
     mapContainer.style.cssText = `
       position: absolute;
@@ -3348,273 +3243,92 @@ class TacticalDisplayClient {
       height: 100%;
       z-index: 0;
       opacity: 0.8;
-      background-color: #2a2a2a;
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
     `;
-    
-    console.log('🗺️ Creating new map container with dimensions:', {
-      width: visualizationArea.offsetWidth,
-      height: visualizationArea.offsetHeight,
-      lat: lat,
-      lng: lng,
-      zoom: zoomLevel
-    });
-    
-    // Create a tile-based map using light tiles (use exact lat/lng)
-    this.createBlueMarbleTileMap(mapContainer, lat, lng, Math.floor(zoomLevel));
-    
-    console.log(`🗺️ Created light map centered at ${lat}, ${lng} with zoom ${zoomLevel}`);
     
     visualizationArea.appendChild(mapContainer);
     this.mapElement = mapContainer;
+    
+    // Initialize Mapbox GL map
+    this.initializeMapboxMap(mapContainer, lat, lng);
   }
 
+  private initializeMapboxMap(container: HTMLElement, lat: number, lng: number) {
+    // Set Mapbox access token (you can use a public token or set your own)
+    mapboxgl.accessToken = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+    
+    // Create Mapbox GL map
+    this.mapboxMap = new mapboxgl.Map({
+      container: container,
+      style: {
+        version: 8,
+        sources: {
+          'local-tiles': {
+            type: 'raster',
+            tiles: ['./tile-final/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            minzoom: 1,
+            maxzoom: 18
+          }
+        },
+        layers: [
+          {
+            id: 'local-tiles-layer',
+            type: 'raster',
+            source: 'local-tiles',
+            paint: {
+              'raster-opacity': 0.8
+            }
+          }
+        ]
+      },
+      center: [lng, lat],
+      zoom: 10,
+      maxZoom: 18,
+      minZoom: 1,
+      interactive: false, // Disable user interaction
+      attributionControl: false
+    });
+
+    // Wait for map to load
+    this.mapboxMap.on('load', () => {
+      console.log('🗺️ Mapbox GL map loaded successfully with local tiles');
+    });
+
+    // Handle map errors
+    this.mapboxMap.on('error', (e) => {
+      console.error('🗺️ Mapbox GL map error:', e);
+    });
+  }
+
+  // Old tile-based map system removed - now using Mapbox GL
   private createBlueMarbleTileMap(container: HTMLElement, centerLat: number, centerLng: number, zoom: number) {
-    // Ensure map stays within India boundaries
-    centerLat = this.clampToIndiaBounds(centerLat, 'lat');
-    centerLng = this.clampToIndiaBounds(centerLng, 'lng');
-    console.log(`🗺️ Creating light map (India): lat=${centerLat}, lng=${centerLng}, zoom=${zoom}`);
+    // This method is no longer used - Mapbox GL handles map rendering
+    console.log('🗺️ Old tile-based map system disabled - using Mapbox GL instead');
+  }
+
+  // Map labels removed - location information shown only in dialog
+
+  private findNearestMumbaiLocation(lat: number, lng: number): string {
+    let nearestLocation = 'Mumbai';
+    let minDistance = Infinity;
     
-    // Use light map tiles with labels (states, cities, districts)
-    const lightTileSources = [
-      // CartoDB Positron with labels - shows state names, cities, and districts
-      `https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/${zoom}/{x}/{y}.png`,
-      `https://cartodb-basemaps-b.global.ssl.fastly.net/light_all/${zoom}/{x}/{y}.png`,
-      `https://cartodb-basemaps-c.global.ssl.fastly.net/light_all/${zoom}/{x}/{y}.png`,
-      // OpenStreetMap with full labels as fallback
-      `https://tile.openstreetmap.org/${zoom}/{x}/{y}.png`,
-      // Stamen Toner with labels
-      `https://stamen-tiles.a.ssl.fastly.net/toner/${zoom}/{x}/{y}.png`
-    ];
+    const mumbaiData = this.mumbaiLocations.Mumbai;
     
-    // Calculate tile coordinates for the center
-    const tileSize = 256;
-    const n = Math.pow(2, zoom);
-    const centerTileX = Math.floor(n * ((centerLng + 180) / 360));
-    const centerTileY = Math.floor(n * (1 - (Math.log(Math.tan((centerLat * Math.PI) / 180) + 1 / Math.cos((centerLat * Math.PI) / 180)) / Math.PI)) / 2);
-    
-    // Get container dimensions
-    const containerWidth = container.offsetWidth || window.innerWidth - 60;
-    const containerHeight = container.offsetHeight || window.innerHeight - 60;
-    
-    // Calculate tiles needed for FULL screen coverage
-    const tilesX = Math.ceil(containerWidth / tileSize) + 4; // Extra tiles for full coverage
-    const tilesY = Math.ceil(containerHeight / tileSize) + 4; // Extra tiles for full coverage
-    const halfTilesX = Math.floor(tilesX / 2);
-    const halfTilesY = Math.floor(tilesY / 2);
-    
-    console.log(`🗺️ Container dimensions: ${containerWidth}x${containerHeight}`);
-    console.log(`🗺️ Tile size: ${tileSize}, Required tiles: ${Math.ceil(containerWidth / tileSize)}x${Math.ceil(containerHeight / tileSize)}`);
-    console.log(`🗺️ Creating extended grid: ${tilesX}x${tilesY} for full coverage`);
-    
-    console.log(`🗺️ Creating ${tilesX}x${tilesY} light tile grid`);
-    
-    // Calculate pixel offset to center the map properly
-    const pixelX = (centerLng + 180) * n * tileSize / 360 - centerTileX * tileSize;
-    const pixelY = (1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) * n * tileSize / 2 - centerTileY * tileSize;
-    
-    for (let dx = -halfTilesX; dx <= halfTilesX; dx++) {
-      for (let dy = -halfTilesY; dy <= halfTilesY; dy++) {
-        const tileX = centerTileX + dx;
-        const tileY = centerTileY + dy;
+    mumbaiData.districts.forEach(district => {
+      district.places.forEach(place => {
+        // Calculate distance using simple Euclidean distance
+        const distance = Math.sqrt(
+          Math.pow(lat - place.lat, 2) + Math.pow(lng - place.lng, 2)
+        );
         
-        // Ensure tile coordinates are valid
-        if (tileX >= 0 && tileX < n && tileY >= 0 && tileY < n) {
-          const tile = document.createElement('div');
-          
-          // Position tiles to create seamless FULL coverage
-          const leftPos = (containerWidth / 2) + (dx * tileSize) - pixelX;
-          const topPos = (containerHeight / 2) + (dy * tileSize) - pixelY;
-          
-          tile.style.cssText = `
-            position: absolute;
-            width: ${tileSize}px;
-            height: ${tileSize}px;
-            left: ${leftPos}px;
-            top: ${topPos}px;
-            background-color: #001122;
-            z-index: 1;
-            border: none;
-            opacity: 0;
-            transition: opacity 0.3s ease-in;
-          `;
-          
-          // Use light tile loading without callbacks (instant appearance)
-          this.loadTileInstant(tile, tileX, tileY, zoom, lightTileSources);
-          
-          container.appendChild(tile);
+        if (distance < minDistance) {
+          minDistance = distance;
+          nearestLocation = place.name;
         }
-      }
-    }
+      });
+    });
     
-    // Add map attribution with feature info
-    const attribution = document.createElement('div');
-    attribution.style.cssText = `
-      position: absolute;
-      bottom: 5px;
-      right: 5px;
-      font-size: 8px;
-      color: rgba(255, 255, 255, 0.9);
-      background: rgba(0, 0, 0, 0.8);
-      padding: 3px 6px;
-      border-radius: 3px;
-      z-index: 10;
-      border: 1px solid rgba(76, 175, 80, 0.5);
-    `;
-    attribution.innerHTML = '🗺️ Map: States, Cities & Districts | <a href="https://carto.com" style="color: #4CAF50;">CartoDB</a> | <a href="https://osm.org" style="color: #4CAF50;">OSM</a>';
-    container.appendChild(attribution);
-    
-    // Add zoom level info to show what labels are visible
-    const labelInfo = document.createElement('div');
-    labelInfo.style.cssText = `
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      font-size: 9px;
-      color: rgba(0, 255, 0, 0.9);
-      background: rgba(0, 0, 0, 0.8);
-      padding: 4px 8px;
-      border-radius: 3px;
-      z-index: 10;
-      font-family: monospace;
-      border: 1px solid rgba(0, 255, 0, 0.5);
-    `;
-    
-    // Show what's visible at current zoom level
-    let visibleFeatures = '';
-    if (zoom <= 3) {
-      visibleFeatures = 'COUNTRIES';
-    } else if (zoom <= 5) {
-      visibleFeatures = 'STATES / PROVINCES';
-    } else if (zoom <= 8) {
-      visibleFeatures = 'STATES + MAJOR CITIES';
-    } else if (zoom <= 10) {
-      visibleFeatures = 'DISTRICTS + CITIES';
-    } else {
-      visibleFeatures = 'ALL LABELS (Districts, Towns)';
-    }
-    
-    labelInfo.textContent = `MAP ZOOM ${zoom} | ${visibleFeatures}`;
-    container.appendChild(labelInfo);
-    
-    console.log(`🗺️ Map labels at zoom ${zoom}: ${visibleFeatures}`);
-  }
-
-  private loadTileInstant(tile: HTMLElement, tileX: number, tileY: number, zoom: number, sources: string[]) {
-    // Load tile instantly without loading indicators
-    this.tryLoadTileInstant(tile, tileX, tileY, zoom, sources, 0);
-  }
-
-  private tryLoadTileInstant(tile: HTMLElement, tileX: number, tileY: number, zoom: number, sources: string[], sourceIndex: number) {
-    if (sourceIndex >= sources.length) {
-      // All sources failed, show subtle gray background
-      tile.style.backgroundColor = '#1a1a2e';
-      tile.style.opacity = '1';
-      return;
-    }
-
-    let tileUrl = sources[sourceIndex];
-    
-    // Handle different URL formats for light map sources
-    if (tileUrl.includes('{q}')) {
-      const quadKey = this.tileToQuadKey(tileX, tileY, zoom);
-      tileUrl = tileUrl.replace('{q}', quadKey);
-    } else {
-      tileUrl = tileUrl.replace('{x}', tileX.toString()).replace('{y}', tileY.toString());
-    }
-    
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    // Shorter timeout for faster fallback
-    const loadTimeout = setTimeout(() => {
-      this.tryLoadTileInstant(tile, tileX, tileY, zoom, sources, sourceIndex + 1);
-    }, 2000);
-    
-    img.onload = () => {
-      clearTimeout(loadTimeout);
-      tile.style.backgroundImage = `url('${img.src}')`;
-      tile.style.backgroundSize = 'cover';
-      tile.style.backgroundRepeat = 'no-repeat';
-      tile.style.backgroundColor = 'transparent';
-      tile.style.opacity = '1'; // Fade in smoothly
-    };
-    
-    img.onerror = () => {
-      clearTimeout(loadTimeout);
-      this.tryLoadTileInstant(tile, tileX, tileY, zoom, sources, sourceIndex + 1);
-    };
-    
-    img.src = tileUrl;
-  }
-
-  private loadTileOptimized(tile: HTMLElement, tileX: number, tileY: number, zoom: number, sources: string[], onSuccess: () => void) {
-    // Try light map sources first, with fallback logic
-    this.tryLoadTile(tile, tileX, tileY, zoom, sources, 0, onSuccess);
-  }
-
-  private tryLoadTile(tile: HTMLElement, tileX: number, tileY: number, zoom: number, sources: string[], sourceIndex: number, onSuccess: () => void) {
-    if (sourceIndex >= sources.length) {
-      console.warn(`🗺️ All light tile sources failed for: ${zoom}/${tileX}/${tileY}`);
-      tile.style.backgroundColor = '#f0f0f0';
-      onSuccess();
-      return;
-    }
-
-    let tileUrl = sources[sourceIndex];
-    
-    // Handle different URL formats for light map sources
-    if (tileUrl.includes('{q}')) {
-      // Bing format - convert to quadkey
-      const quadKey = this.tileToQuadKey(tileX, tileY, zoom);
-      tileUrl = tileUrl.replace('{q}', quadKey);
-    } else {
-      // Standard format
-      tileUrl = tileUrl.replace('{x}', tileX.toString()).replace('{y}', tileY.toString());
-    }
-    
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    // Set timeout for faster loading
-    const loadTimeout = setTimeout(() => {
-      console.warn(`🗺️ Light tile loading timeout for source ${sourceIndex}: ${zoom}/${tileX}/${tileY}`);
-      // Try next source
-      this.tryLoadTile(tile, tileX, tileY, zoom, sources, sourceIndex + 1, onSuccess);
-    }, 3000); // 3 second timeout for light tiles
-    
-    img.onload = () => {
-      clearTimeout(loadTimeout);
-      tile.style.backgroundImage = `url('${img.src}')`;
-      tile.style.backgroundSize = 'cover';
-      tile.style.backgroundRepeat = 'no-repeat';
-      tile.style.backgroundColor = 'transparent';
-      console.log(`🗺️ Successfully loaded light tile from source ${sourceIndex}: ${zoom}/${tileX}/${tileY}`);
-      onSuccess();
-    };
-    
-    img.onerror = () => {
-      clearTimeout(loadTimeout);
-      console.warn(`🗺️ Failed to load light tile from source ${sourceIndex}: ${zoom}/${tileX}/${tileY}`);
-      // Try next source
-      this.tryLoadTile(tile, tileX, tileY, zoom, sources, sourceIndex + 1, onSuccess);
-    };
-    
-    img.src = tileUrl;
-  }
-
-  private tileToQuadKey(tileX: number, tileY: number, zoom: number): string {
-    let quadKey = '';
-    for (let i = zoom; i > 0; i--) {
-      let digit = 0;
-      const mask = 1 << (i - 1);
-      if ((tileX & mask) !== 0) digit++;
-      if ((tileY & mask) !== 0) digit += 2;
-      quadKey += digit.toString();
-    }
-    return quadKey;
+    return nearestLocation;
   }
 
 
@@ -4106,13 +3820,13 @@ class TacticalDisplayClient {
   }
 
   public sendMessage(message: string) {
-    const messageData = {
-      type: 'message',
-      payload: {
-        id: this.nodeId,
-        message: message
-      }
-    };
+      const messageData = {
+        type: 'message',
+        payload: {
+          id: this.nodeId,
+          message: message
+        }
+      };
     console.log('📤 Local message:', messageData);
   }
 
