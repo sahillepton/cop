@@ -20,6 +20,8 @@ type Aircraft = {
   speed: number;
   totalDistanceCovered?: number; // Total distance in nautical miles
   lastPosition?: { lat: number; lng: number }; // Last known position for distance calculation
+  isLocked?: boolean; // Whether the aircraft is locked
+  isExecuted?: boolean; // Whether the aircraft has been executed
 };
 
 // Tactical Display Client (with dummy data)
@@ -96,6 +98,7 @@ class TacticalDisplayClient {
     targetHeading: number;
   }> = new Map(); // Track interpolation data for each aircraft
   private panOffset: { x: number; y: number } = { x: 0, y: 0 }; // Track pan offset
+  private viewMode: 'normal' | 'self-only' = 'normal'; // Toggle between normal view and self-only view
   private isDragging: boolean = false; // Track if currently dragging
   private lastMousePos: { x: number; y: number } = { x: 0, y: 0 }; // Last mouse position for dragging
   private viewAdjustmentThrottle: NodeJS.Timeout | null = null; // Throttle view adjustments
@@ -1761,6 +1764,12 @@ class TacticalDisplayClient {
         return; // Skip center aircraft
       }
       
+      // Filter aircraft based on view mode
+      if (this.viewMode === 'self-only' && aircraft.aircraftType !== 'self') {
+        console.log(`🎨 Skipping non-self aircraft in self-only mode: ${aircraft.callSign}`);
+        return; // Skip non-self aircraft in self-only mode
+      }
+      
       // Always show all aircraft with fixed small icons
       console.log(`🎨 Rendering aircraft: ${aircraft.callSign} (${aircraft.aircraftType}) with fixed 20px icon`);
 
@@ -1931,6 +1940,77 @@ class TacticalDisplayClient {
       gap: 10px;
       z-index: 100;
     `;
+
+    // View mode buttons
+    const button101 = document.createElement('button');
+    button101.textContent = '101';
+    button101.style.cssText = `
+      width: 40px;
+      height: 30px;
+      background: ${this.viewMode === 'normal' ? '#44ff44' : '#333'};
+      color: white;
+      border: 1px solid #555;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 10px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 5px;
+    `;
+
+    button101.addEventListener('click', () => {
+      this.setViewMode('normal');
+    });
+
+    button101.addEventListener('mouseenter', () => {
+      button101.style.opacity = '0.8';
+    });
+
+    button101.addEventListener('mouseleave', () => {
+      button101.style.opacity = '1';
+    });
+
+    // Add data attribute for identification
+    button101.setAttribute('data-view-mode', '101');
+
+    const button102 = document.createElement('button');
+    button102.textContent = '102';
+    button102.style.cssText = `
+      width: 40px;
+      height: 30px;
+      background: ${this.viewMode === 'self-only' ? '#ff8844' : '#333'};
+      color: white;
+      border: 1px solid #555;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 10px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 10px;
+    `;
+
+    button102.addEventListener('click', () => {
+      this.setViewMode('self-only');
+    });
+
+    button102.addEventListener('mouseenter', () => {
+      button102.style.opacity = '0.8';
+    });
+
+    button102.addEventListener('mouseleave', () => {
+      button102.style.opacity = '1';
+    });
+
+    // Add data attribute for identification
+    button102.setAttribute('data-view-mode', '102');
 
     // Zoom out button
     const zoomOutButton = document.createElement('button');
@@ -2192,6 +2272,8 @@ class TacticalDisplayClient {
       currentZoom: this.zoomLevel
     });
 
+    sidebar.appendChild(button101);
+    sidebar.appendChild(button102);
     sidebar.appendChild(zoomOutButton);
     sidebar.appendChild(zoomDisplay);
     sidebar.appendChild(zoomInButton);
@@ -2204,6 +2286,25 @@ class TacticalDisplayClient {
     container.appendChild(sidebar);
     
     console.log('Zoom controls added to sidebar');
+  }
+
+  private setViewMode(mode: 'normal' | 'self-only') {
+    console.log(`🔄 Switching to view mode: ${mode}`);
+    this.viewMode = mode;
+    
+    // Update UI to reflect the new view mode
+    this.updateUI();
+    
+    // Update button colors in sidebar
+    const button101 = document.querySelector('button[data-view-mode="101"]') as HTMLElement;
+    const button102 = document.querySelector('button[data-view-mode="102"]') as HTMLElement;
+    
+    if (button101) {
+      button101.style.background = mode === 'normal' ? '#44ff44' : '#333';
+    }
+    if (button102) {
+      button102.style.background = mode === 'self-only' ? '#ff8844' : '#333';
+    }
   }
 
   // Removed static range selection - now using adaptive ranges based on aircraft positions
@@ -2491,7 +2592,7 @@ class TacticalDisplayClient {
     
     // Create aircraft icon using actual icon files
     console.log(`🎨 Creating aircraft icon for ${aircraft.callSign} (${aircraft.aircraftType}) with size ${fixedSize}px`);
-    this.createAircraftIcon(aircraftElement, aircraft.aircraftType, fixedSize);
+    this.createAircraftIcon(aircraftElement, aircraft.aircraftType, fixedSize, aircraft);
     
     // Store glow info to apply to SVG later
     const glowInfo = {
@@ -2528,29 +2629,35 @@ class TacticalDisplayClient {
     return aircraftElement;
   }
 
-  private createAircraftIcon(container: HTMLElement, aircraftType: AircraftType, size: number) {
+  private createAircraftIcon(container: HTMLElement, aircraftType: AircraftType, size: number, aircraft?: Aircraft) {
     // Always create a fallback icon first as the primary icon
     // This ensures aircraft are always visible regardless of SVG loading issues
-    this.createFallbackIcon(container, aircraftType, size);
+    this.createFallbackIcon(container, aircraftType, size, aircraft);
     
-    // Then try to load the SVG icon on top if available
+    // Load appropriate SVG icon based on aircraft state
     let iconFile = '';
-    switch (aircraftType) {
-      case 'mother':
-        iconFile = 'mother-aircraft.svg';
-        break;
-      case 'self':
-        iconFile = 'friendly_aircraft.svg';
-        break;
-      case 'friendly':
-        iconFile = 'friendly_aircraft.svg';
-        break;
-      case 'threat':
-        iconFile = 'hostile_aircraft.svg';
-        break;
-      default:
-        iconFile = 'unknown_aircraft.svg';
-        break;
+    if (aircraft?.isLocked) {
+      // Use alert icon for locked aircraft
+      iconFile = 'alert.svg';
+    } else {
+      // Use normal aircraft icons for unlocked aircraft
+      switch (aircraftType) {
+        case 'mother':
+          iconFile = 'mother-aircraft.svg';
+          break;
+        case 'self':
+          iconFile = 'friendly_aircraft.svg';
+          break;
+        case 'friendly':
+          iconFile = 'friendly_aircraft.svg';
+          break;
+        case 'threat':
+          iconFile = 'hostile_aircraft.svg';
+          break;
+        default:
+          iconFile = 'unknown_aircraft.svg';
+          break;
+      }
     }
     
     // Create image element for the SVG icon
@@ -2560,7 +2667,10 @@ class TacticalDisplayClient {
     
     // Apply glow effects and styling
     let glowFilter = '';
-    if (aircraftType === 'mother') {
+    if (aircraft?.isLocked) {
+      // Orange glow for locked aircraft
+      glowFilter = `drop-shadow(0 0 8px #ffaa00) drop-shadow(0 0 16px #ff8800)`;
+    } else if (aircraftType === 'mother') {
       glowFilter = `drop-shadow(0 0 6px #0080ff) drop-shadow(0 0 12px #0080ff)`;
     } else if (aircraftType === 'self') {
       glowFilter = `drop-shadow(0 0 6px #FFD700) drop-shadow(0 0 12px #FFA500)`;
@@ -2604,7 +2714,7 @@ class TacticalDisplayClient {
     console.log(`✅ Created aircraft icon system for ${aircraftType} with fallback + SVG (size ${size}px)`);
   }
   
-  private createFallbackIcon(container: HTMLElement, aircraftType: AircraftType, size: number) {
+  private createFallbackIcon(container: HTMLElement, aircraftType: AircraftType, size: number, aircraft?: Aircraft) {
     // Create a simple fallback icon if the image fails to load
     const fallbackElement = document.createElement('div');
     const color = this.getAircraftColor(aircraftType);
@@ -2633,29 +2743,50 @@ class TacticalDisplayClient {
       opacity: 1 !important;
     `;
     
-    // Add letter/symbol based on aircraft type
-    switch (aircraftType) {
-      case 'mother':
-        fallbackElement.textContent = 'M';
-        fallbackElement.setAttribute('data-icon-type', 'mother');
-        break;
-      case 'self':
-        fallbackElement.textContent = '★'; // Star for self aircraft
-        fallbackElement.setAttribute('data-icon-type', 'self');
-        break;
-      case 'friendly':
-        fallbackElement.textContent = 'F';
-        fallbackElement.setAttribute('data-icon-type', 'friendly');
-        break;
-      case 'threat':
-        fallbackElement.textContent = '⚠'; // Warning symbol for threats
-        fallbackElement.setAttribute('data-icon-type', 'threat');
-        console.log(`⚠️ Creating THREAT icon with warning symbol`);
-        break;
-      default:
-        fallbackElement.textContent = '?';
-        fallbackElement.setAttribute('data-icon-type', 'unknown');
-        break;
+    // Add letter/symbol based on aircraft type and lock state
+    if (aircraft?.isLocked) {
+      // Use alert icon for locked aircraft instead of emoji
+      const alertIcon = document.createElement('img');
+      alertIcon.src = 'icons/alert.svg';
+      alertIcon.alt = 'Locked aircraft';
+      alertIcon.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: ${size}px;
+        height: ${size}px;
+        pointer-events: none;
+        z-index: 7;
+        object-fit: contain;
+      `;
+      container.appendChild(alertIcon);
+      fallbackElement.setAttribute('data-icon-type', 'locked');
+      fallbackElement.style.background = '#ffaa00'; // Orange background for locked
+      fallbackElement.style.boxShadow = '0 0 15px #ffaa00, 0 0 30px #ffaa00';
+    } else {
+      switch (aircraftType) {
+        case 'mother':
+          fallbackElement.textContent = 'M';
+          fallbackElement.setAttribute('data-icon-type', 'mother');
+          break;
+        case 'self':
+          fallbackElement.textContent = '★'; // Star for self aircraft
+          fallbackElement.setAttribute('data-icon-type', 'self');
+          break;
+        case 'friendly':
+          fallbackElement.textContent = 'F';
+          fallbackElement.setAttribute('data-icon-type', 'friendly');
+          break;
+        case 'threat':
+          fallbackElement.textContent = '⚠'; // Warning symbol for threats
+          fallbackElement.setAttribute('data-icon-type', 'threat');
+          console.log(`⚠️ Creating THREAT icon with warning symbol`);
+          break;
+        default:
+          fallbackElement.textContent = '?';
+          fallbackElement.setAttribute('data-icon-type', 'unknown');
+          break;
+      }
     }
 
     container.appendChild(fallbackElement);
@@ -2809,6 +2940,9 @@ class TacticalDisplayClient {
   private lockThreat(aircraft: Aircraft) {
     console.log(`🎯 LOCKING TARGET: ${aircraft.callSign}`);
     
+    // Set aircraft as locked
+    aircraft.isLocked = true;
+    
     // Change lock button icon to show locked state
     const lockButtons = document.querySelectorAll('button');
     lockButtons.forEach(button => {
@@ -2859,7 +2993,13 @@ class TacticalDisplayClient {
     if (aircraftElement) {
       aircraftElement.style.boxShadow = '0 0 30px #ffaa00, 0 0 50px #ff8800';
       aircraftElement.style.border = '3px solid #ffaa00';
+      
+      // Update the aircraft icon to show lock symbol
+      this.updateAircraftIcon(aircraftElement, aircraft);
     }
+    
+    // Update connection lines to reflect locked state
+    this.updateConnectionLines();
     
     // Remove notification after 2 seconds
     setTimeout(() => {
@@ -2871,6 +3011,9 @@ class TacticalDisplayClient {
 
   private executeThreat(aircraft: Aircraft) {
     console.log(`💥 EXECUTING TARGET: ${aircraft.callSign}`);
+    
+    // Set aircraft as executed
+    aircraft.isExecuted = true;
     
     // Change execute button icon to show executed state
     const executeButtons = document.querySelectorAll('button');
@@ -2932,6 +3075,9 @@ class TacticalDisplayClient {
         aircraftElement.remove();
       }, 1000);
     }
+    
+    // Update connection lines to reflect executed state before removal
+    this.updateConnectionLines();
     
     // Remove aircraft from data
     this.aircraft.delete(aircraft.id);
@@ -3352,6 +3498,11 @@ class TacticalDisplayClient {
 
     this.aircraft.forEach((aircraft, id) => {
       if (id === centerAircraft.id) return; // Skip center aircraft
+      
+      // Filter aircraft based on view mode
+      if (this.viewMode === 'self-only' && aircraft.aircraftType !== 'self') {
+        return; // Skip non-self aircraft in self-only mode
+      }
 
       // Calculate relative position and convert to Cartesian
       const relativeLat = aircraft.lat - centerAircraft.lat;
@@ -3392,15 +3543,30 @@ class TacticalDisplayClient {
       line.setAttribute('x2', aircraftX.toString());
       line.setAttribute('y2', aircraftY.toString());
       
-      // Different line colors for different aircraft types
-      const lineColor = aircraft.aircraftType === 'threat' ? '#ff4444' : 
-                       aircraft.aircraftType === 'mother' ? '#4488ff' : 
-                       aircraft.aircraftType === 'self' ? '#FFD700' : '#44ff44';
+      // Different line colors for different aircraft types and states
+      let lineColor: string;
+      if (aircraft.isExecuted) {
+        lineColor = '#ff0000'; // Red for executed aircraft
+      } else if (aircraft.isLocked) {
+        lineColor = '#ffaa00'; // Orange for locked aircraft
+      } else {
+        lineColor = aircraft.aircraftType === 'threat' ? '#ff4444' : 
+                   aircraft.aircraftType === 'mother' ? '#4488ff' : 
+                   aircraft.aircraftType === 'self' ? '#FFD700' : '#44ff44';
+      }
       
       line.setAttribute('stroke', lineColor);
-      line.setAttribute('stroke-width', '2');
-      line.setAttribute('stroke-opacity', '0.5');
-      line.setAttribute('stroke-dasharray', '5,5'); // Dashed line
+      
+      // Enhanced styling for locked aircraft
+      if (aircraft.isLocked) {
+        line.setAttribute('stroke-width', '4'); // Thicker line for locked aircraft
+        line.setAttribute('stroke-opacity', '0.9'); // Higher opacity for locked aircraft
+        line.setAttribute('stroke-dasharray', 'none'); // Solid line for locked aircraft
+      } else {
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-opacity', '0.5');
+        line.setAttribute('stroke-dasharray', '5,5'); // Dashed line
+      }
       
       svgOverlay.appendChild(line);
       
@@ -3475,6 +3641,30 @@ class TacticalDisplayClient {
     }
     
     console.log(`📡 Drew ${friendlyAircraft.length * (friendlyAircraft.length - 1) / 2} friendly connections`);
+  }
+
+  private updateAircraftIcon(aircraftElement: HTMLElement, aircraft: Aircraft) {
+    // Clear existing icons
+    const existingIcons = aircraftElement.querySelectorAll('[data-icon-type]');
+    existingIcons.forEach(icon => icon.remove());
+    
+    // Get the size from the aircraft element
+    const size = aircraft.aircraftType === 'threat' ? 24 : 20;
+    
+    // Recreate the icon with updated state
+    this.createAircraftIcon(aircraftElement, aircraft.aircraftType, size, aircraft);
+  }
+
+  private updateConnectionLines() {
+    // Find the visualization area and center aircraft
+    const visualizationArea = document.querySelector('#nodes-container') as HTMLElement;
+    if (!visualizationArea) return;
+    
+    const centerAircraft = this.motherAircraft;
+    if (!centerAircraft) return;
+    
+    // Redraw connection lines with updated colors
+    this.drawConnectionLines(visualizationArea, centerAircraft);
   }
 
   // Position history methods removed since server handles movement
