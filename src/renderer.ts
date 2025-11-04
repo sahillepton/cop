@@ -3410,7 +3410,7 @@ class TacticalDisplayClient {
         sources: {
           'local-tiles': {
             type: 'raster',
-            tiles: ['./tile-final/{z}/{x}/{y}.png'],
+            tiles: ['./tiles-map/{z}/{x}/{y}.png'],
             tileSize: 256,
             minzoom: 1,
             maxzoom: 18
