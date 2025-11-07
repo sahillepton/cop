@@ -30,6 +30,27 @@ body {
   font-style: italic;
 }
 
+/* Global text rendering improvements for all node text */
+#nodes-container *,
+#visualization-area * {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ensure aircraft labels and all text elements have proper rendering */
+.aircraft-marker,
+.aircraft-marker *,
+[class*="aircraft"],
+[class*="node"],
+#visualization-area div,
+#visualization-area text,
+#visualization-area svg text {
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  text-rendering: optimizeLegibility !important;
+}
+
 /* Animations for node movement */
 @keyframes pulse {
   0% {

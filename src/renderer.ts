@@ -38,7 +38,9 @@ class TacticalDisplayClient {
   private messageCodesInterval: NodeJS.Timeout | null = null; // Track message codes display interval
   private messageCodes: number[] = [101, 102, 103, 104, 105, 106, 122]; // Available message codes
   private mapUpdateInterval: NodeJS.Timeout | null = null; // Track periodic map updates
+  private locationUpdateInterval: NodeJS.Timeout | null = null; // Track location display updates
   private motherAircraft: Aircraft | null = null; // Reference to mother aircraft for centering
+  private motherLocation: { lat: number; lng: number; heading: number; altitude: number; speed: number; callSign: string } | null = null; // Stored mother location for dialog
   private showMap: boolean = true; // Toggle visibility of background map (enabled by default)
   private mapElement: HTMLElement | null = null; // Reference to map container
   private mapboxMap: mapboxgl.Map | null = null; // Mapbox GL map instance
@@ -384,6 +386,15 @@ class TacticalDisplayClient {
       this.motherAircraft = aircraft;
       console.log(`🎯 MOTHER AIRCRAFT FOUND: ${aircraft.callSign} - setting as center reference`);
       console.log(`🎯 Mother aircraft details:`, aircraft);
+      // Initialize and update mother location in dialog using dedicated function
+      this.updateMotherLocationInDialog(
+        aircraft.lat,
+        aircraft.lng,
+        aircraft.heading,
+        aircraft.altitude,
+        aircraft.speed,
+        aircraft.callSign
+      );
           } else {
       console.log(`✈️ Non-mother aircraft: ${aircraft.callSign} (${aircraft.aircraftType})`);
     }
@@ -413,32 +424,70 @@ class TacticalDisplayClient {
 
   private updateAircraftLocation(locationData: any) {
     const aircraft = this.aircraft.get(locationData.id);
-    if (aircraft) {
-      // Store current position as start point for interpolation
-      const startLat = aircraft.lat;
-      const startLng = aircraft.lng;
-      const startHeading = aircraft.heading;
-      
-      // Update target position
-      const targetLat = locationData.lat;
-      const targetLng = locationData.lng;
-      const targetHeading = locationData.heading !== undefined ? locationData.heading : aircraft.heading;
-      
-      // Update additional flight data if provided
-      if (locationData.altitude !== undefined) aircraft.altitude = locationData.altitude;
-      if (locationData.speed !== undefined) aircraft.speed = locationData.speed;
-      
-      this.aircraft.set(locationData.id, aircraft);
-      console.log(`✈️ ${aircraft.callSign} location updated: ${targetLat.toFixed(4)}, ${targetLng.toFixed(4)} | Alt: ${aircraft.altitude}ft, Hdg: ${targetHeading}°, Spd: ${aircraft.speed}kts`);
-      this.updateDebugInfo();
-      
-      // Calculate interpolation duration based on distance and speed (very fast for highly visible movement)
-      const distance = Math.sqrt(Math.pow(targetLat - startLat, 2) + Math.pow(targetLng - startLng, 2));
-      const speedKnots = aircraft.speed;
-      const duration = Math.max(100, Math.min(800, (distance * 111000) / (speedKnots * 0.514) * 200)); // Very fast movement for highly visible changes
-      
-      // Set up interpolation
-      this.aircraftInterpolation.set(locationData.id, {
+    if (!aircraft) return;
+    
+    // Store current position as start point for interpolation
+    const startLat = aircraft.lat;
+    const startLng = aircraft.lng;
+    const startHeading = aircraft.heading;
+    
+    // Update target position
+    const targetLat = locationData.lat;
+    const targetLng = locationData.lng;
+    const targetHeading = locationData.heading !== undefined ? locationData.heading : aircraft.heading;
+    
+    // Update additional flight data if provided
+    if (locationData.altitude !== undefined) aircraft.altitude = locationData.altitude;
+    if (locationData.speed !== undefined) aircraft.speed = locationData.speed;
+    
+    // IMPORTANT: Update aircraft position immediately to target
+    aircraft.lat = targetLat;
+    aircraft.lng = targetLng;
+    aircraft.heading = targetHeading;
+    
+    this.aircraft.set(locationData.id, aircraft);
+    
+    // Update motherAircraft reference if this is the mother aircraft (to keep it in sync)
+    if (aircraft.aircraftType === 'mother' || (this.motherAircraft && aircraft.id === this.motherAircraft.id)) {
+      this.motherAircraft = aircraft; // Keep reference updated
+    }
+    
+    console.log(`✈️ ${aircraft.callSign} location updated: ${targetLat.toFixed(4)}, ${targetLng.toFixed(4)} | Alt: ${aircraft.altitude}ft, Hdg: ${targetHeading}°, Spd: ${aircraft.speed}kts`);
+    
+    // Check if this is the mother aircraft and update stored location
+    const isMother = (aircraft.aircraftType === 'mother') || (this.motherAircraft && aircraft.id === this.motherAircraft.id);
+    
+    console.log(`📍 Checking if mother aircraft - ID: ${locationData.id}, Type: ${aircraft.aircraftType}, Mother ID: ${this.motherAircraft?.id}, isMother: ${isMother}`);
+    
+    if (isMother) {
+        console.log(`📍 MOTHER AIRCRAFT UPDATE DETECTED - ID: ${locationData.id}, Type: ${aircraft.aircraftType}`);
+        console.log(`📍 Calling updateMotherLocationInDialog() with new location data...`);
+        console.log(`📍 Location data: lat=${targetLat.toFixed(4)}, lng=${targetLng.toFixed(4)}, heading=${targetHeading}, alt=${aircraft.altitude}, speed=${aircraft.speed}`);
+        
+        // ALWAYS update mother location in dialog when location data arrives (even if values are the same)
+        // This ensures the dialog is refreshed on every location update
+        this.updateMotherLocationInDialog(
+          targetLat,
+          targetLng,
+          targetHeading,
+          aircraft.altitude,
+          aircraft.speed,
+          aircraft.callSign
+        );
+        
+        console.log(`📍 updateMotherLocationInDialog() completed`);
+    } else {
+        console.log(`📍 Not mother aircraft - skipping dialog update`);
+    }
+    
+    this.updateDebugInfo();
+    
+    // Set up interpolation for smooth visual movement
+    const distance = Math.sqrt(Math.pow(targetLat - startLat, 2) + Math.pow(targetLng - startLng, 2));
+    const speedKnots = aircraft.speed;
+    const duration = Math.max(100, Math.min(800, (distance * 111000) / (speedKnots * 0.514) * 200));
+    
+    this.aircraftInterpolation.set(locationData.id, {
         startLat,
         startLng,
         targetLat,
@@ -447,17 +496,16 @@ class TacticalDisplayClient {
         duration,
         startHeading,
         targetHeading
-      });
-      
-      // Map updates are handled automatically by periodic smooth updates
-      // No need to force immediate updates here
-      
-      // Check for warnings after position update (throttled)
-      this.throttledWarningCheck();
-      
-      // Update threat dialog when aircraft positions change
-      this.updateThreatDialog();
-    }
+    });
+    
+    // Check for warnings after position update (throttled)
+    this.throttledWarningCheck();
+    
+    // Update threat dialog when aircraft positions change
+    this.updateThreatDialog();
+    
+    // Also update visual position
+    this.updateAircraftVisualPosition(locationData.id);
   }
 
   private updateAircraftVisualPosition(aircraftId: string) {
@@ -504,6 +552,30 @@ class TacticalDisplayClient {
     } else {
       // If element doesn't exist, update the entire UI
       this.updateUI();
+    }
+    
+    // Update stored mother location if this is the mother aircraft
+    if (aircraftId === this.motherAircraft?.id && this.motherAircraft) {
+      // Check if location actually changed
+      const hasChanged = !this.motherLocation || 
+        this.motherLocation.lat !== this.motherAircraft.lat ||
+        this.motherLocation.lng !== this.motherAircraft.lng ||
+        this.motherLocation.heading !== this.motherAircraft.heading ||
+        this.motherLocation.altitude !== this.motherAircraft.altitude ||
+        this.motherLocation.speed !== this.motherAircraft.speed;
+      
+      if (hasChanged) {
+        // Update mother location in dialog using dedicated function
+        this.updateMotherLocationInDialog(
+          this.motherAircraft.lat,
+          this.motherAircraft.lng,
+          this.motherAircraft.heading,
+          this.motherAircraft.altitude,
+          this.motherAircraft.speed,
+          this.motherAircraft.callSign
+        );
+        console.log(`📍 Mother location changed in visual update - dialog updated`);
+      }
     }
   }
 
@@ -1318,7 +1390,14 @@ class TacticalDisplayClient {
   }
 
   private createLocationDisplay() {
-    const locationDisplay = document.createElement('div');
+    // Check if location display already exists
+    let locationDisplay = document.getElementById('location-display');
+    if (locationDisplay) {
+      console.log('📍 Location display already exists, skipping creation');
+      return;
+    }
+    
+    locationDisplay = document.createElement('div');
     locationDisplay.id = 'location-display';
     locationDisplay.style.cssText = `
       position: fixed;
@@ -1339,6 +1418,41 @@ class TacticalDisplayClient {
     
     // Update location immediately
     this.updateLocationDisplay();
+    
+    // Set up periodic updates (every 100ms) to check for mother location changes and update dialog
+    if (this.locationUpdateInterval) {
+      clearInterval(this.locationUpdateInterval);
+      this.locationUpdateInterval = null;
+    }
+    
+    this.locationUpdateInterval = setInterval(() => {
+      // Check if mother aircraft exists and location has changed
+      if (this.motherAircraft) {
+        const hasChanged = !this.motherLocation || 
+          this.motherLocation.lat !== this.motherAircraft.lat ||
+          this.motherLocation.lng !== this.motherAircraft.lng ||
+          this.motherLocation.heading !== this.motherAircraft.heading ||
+          this.motherLocation.altitude !== this.motherAircraft.altitude ||
+          this.motherLocation.speed !== this.motherAircraft.speed;
+        
+        if (hasChanged) {
+          console.log('📍 Periodic check: Mother location changed, calling updateMotherLocationInDialog()');
+          this.updateMotherLocationInDialog(
+            this.motherAircraft.lat,
+            this.motherAircraft.lng,
+            this.motherAircraft.heading,
+            this.motherAircraft.altitude,
+            this.motherAircraft.speed,
+            this.motherAircraft.callSign
+          );
+        }
+      } else if (this.motherLocation) {
+        // Fallback: just update display if motherLocation exists but no motherAircraft reference
+        this.updateLocationDisplay();
+      }
+    }, 100); // Check every 100ms for location changes
+    
+    console.log('📍 Location display created and periodic update interval started (100ms checks)');
   }
 
   private getLocationInfo(lat: number, lng: number): { country: string; state: string; place: string } {
@@ -1511,32 +1625,126 @@ class TacticalDisplayClient {
     return { country, state, place };
   }
 
-  private updateLocationDisplay() {
-    const locationDisplay = document.getElementById('location-display');
-    if (!locationDisplay) return;
+  private getCurrentAircraftPosition(aircraftId: string): { lat: number; lng: number; heading: number } | null {
+    const aircraft = this.aircraft.get(aircraftId);
+    if (!aircraft) return null;
     
-    // Get self aircraft position
-    const selfAircraft = this.aircraft.get(this.nodeId);
-    if (!selfAircraft) {
-      locationDisplay.innerHTML = `
-        <div style="color: #ff8800; font-weight: bold;">📍 LOCATION</div>
-        <div>No aircraft data</div>
-      `;
-      return;
+    // Since aircraft positions are updated immediately when location updates arrive,
+    // we can directly use the aircraft's current position
+    return { lat: aircraft.lat, lng: aircraft.lng, heading: aircraft.heading };
+  }
+
+  private updateMotherLocationInDialog(lat: number, lng: number, heading: number, altitude: number, speed: number, callSign: string) {
+    console.log(`📍 updateMotherLocationInDialog() CALLED with:`, { lat, lng, heading, altitude, speed, callSign });
+    
+    // Update the stored mother location variable
+    this.motherLocation = {
+      lat: lat,
+      lng: lng,
+      heading: heading,
+      altitude: altitude,
+      speed: speed,
+      callSign: callSign
+    };
+    
+    console.log(`📍 Mother location variable updated: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    
+    // Update the dialog display
+    this.updateLocationDisplay();
+    console.log(`📍 updateLocationDisplay() called from updateMotherLocationInDialog`);
+  }
+
+  private updateLocationDisplay() {
+    console.log('📍 updateLocationDisplay() called');
+    console.log('📍 motherLocation:', this.motherLocation);
+    
+    // FIRST: Remove old dialog from document if it exists
+    const existingDisplay = document.getElementById('location-display');
+    if (existingDisplay) {
+      console.log('📍 Removing old dialog from document');
+      existingDisplay.remove();
+      console.log('📍 Old dialog removed');
+    } else {
+      console.log('📍 No existing dialog found to remove');
     }
     
-    const location = this.getLocationInfo(selfAircraft.lat, selfAircraft.lng);
+    // Use stored mother location variable
+    if (!this.motherLocation) {
+      console.log('📍 No motherLocation stored, trying to initialize from aircraft...');
+      // Try to initialize from mother aircraft if available 
+      const motherAircraft = this.motherAircraft || this.aircraft.get(this.nodeId);
+      if (motherAircraft) {
+        this.motherLocation = {
+          lat: motherAircraft.lat,
+          lng: motherAircraft.lng,
+          heading: motherAircraft.heading,
+          altitude: motherAircraft.altitude,
+          speed: motherAircraft.speed,
+          callSign: motherAircraft.callSign
+        };
+        console.log('📍 Initialized motherLocation from aircraft:', this.motherLocation);
+      } else {
+        console.log('📍 No mother aircraft available - dialog already removed');
+        return;
+      }
+    }
     
-    locationDisplay.innerHTML = `
-      <div style="color: #00ffff; font-weight: bold; margin-bottom: 5px;">📍 CURRENT LOCATION</div>
+    // Get location info from stored coordinates
+    console.log('📍 Getting location info for:', this.motherLocation.lat, this.motherLocation.lng);
+    const location = this.getLocationInfo(this.motherLocation.lat, this.motherLocation.lng);
+    console.log('📍 Location info:', location);
+    
+    // THEN: Create and add new dialog with updated location
+    console.log('📍 Creating new dialog element...');
+    const locationDisplay = document.createElement('div');
+    locationDisplay.id = 'location-display';
+    locationDisplay.style.cssText = `
+      position: fixed;
+      top: 120px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.9);
+      color: #00ff00;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 10px 15px;
+      border-radius: 4px;
+      border: 1px solid #00ff00;
+      z-index: 250;
+      min-width: 250px;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    `;
+    console.log('📍 Dialog element created with styles');
+    
+    // Set all the content with new location data
+    const dialogContent = `
+      <div style="color: #00ffff; font-weight: bold; margin-bottom: 5px;">📍 MOTHER LOCATION</div>
+      <div><strong>Aircraft:</strong> ${this.motherLocation.callSign}</div>
       <div><strong>Country:</strong> ${location.country}</div>
       <div><strong>State/Region:</strong> ${location.state}</div>
       <div><strong>Place:</strong> ${location.place}</div>
       <hr style="border: 1px solid #333; margin: 8px 0;">
       <div style="color: #aaa; font-size: 10px;">
-        Position: ${selfAircraft.lat.toFixed(4)}°, ${selfAircraft.lng.toFixed(4)}°
+        Position: ${this.motherLocation.lat.toFixed(4)}°, ${this.motherLocation.lng.toFixed(4)}°
+      </div>
+      <div style="color: #aaa; font-size: 10px; margin-top: 4px;">
+        Alt: ${this.motherLocation.altitude}ft | Hdg: ${this.motherLocation.heading.toFixed(0)}° | Spd: ${this.motherLocation.speed}kts
       </div>
     `;
+    locationDisplay.innerHTML = dialogContent;
+    console.log('📍 Dialog content set:', dialogContent.substring(0, 100) + '...');
+    
+    // Append new dialog to body
+    console.log('📍 Appending dialog to body...');
+    document.body.appendChild(locationDisplay);
+    console.log('📍 Dialog appended to body');
+    
+    // Verify it was added
+    const verifyDialog = document.getElementById('location-display');
+    if (verifyDialog) {
+      console.log('✅ Dialog successfully added to DOM');
+    } else {
+      console.error('❌ Dialog was NOT added to DOM!');
+    }
   }
 
   private endSimulation() {
@@ -1547,6 +1755,12 @@ class TacticalDisplayClient {
     const simUI = document.getElementById('simulation-ui');
     if (simUI) {
       simUI.remove();
+    }
+    
+    // Clear location update interval
+    if (this.locationUpdateInterval) {
+      clearInterval(this.locationUpdateInterval);
+      this.locationUpdateInterval = null;
     }
     
     // Remove location display
@@ -1727,8 +1941,8 @@ class TacticalDisplayClient {
     
     // Map updates are handled automatically by periodic smooth updates
 
-    // Create 2D graph with grid lines and circles
-    this.create2DGraph(visualizationArea);
+    // Grid removed - only create radar circles
+    this.createAdaptiveRadarCircles(visualizationArea);
 
     // Always create center aircraft element at screen center (same positioning as radar circles)
     const centerElement = this.createAircraftElement(centerAircraft, true);
@@ -1826,6 +2040,15 @@ class TacticalDisplayClient {
     if (this.showThreatDialog) {
       this.createThreatDialog();
       this.updateThreatDialog();
+    }
+    
+    // Ensure location display is created if it doesn't exist
+    let locationDisplay = document.getElementById('location-display');
+    if (!locationDisplay) {
+      this.createLocationDisplay();
+    } else {
+      // Update location display when UI is updated
+      this.updateLocationDisplay();
     }
   }
 
@@ -2615,6 +2838,9 @@ class TacticalDisplayClient {
       text-shadow: 0 0 3px black;
       white-space: nowrap;
       pointer-events: none;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
     `;
     callSignLabel.textContent = aircraft.callSign;
     aircraftElement.appendChild(callSignLabel);
@@ -2725,20 +2951,18 @@ class TacticalDisplayClient {
       left: 0;
       width: ${size}px;
       height: ${size}px;
-      background: ${color};
-      border: 2px solid white;
-      border-radius: 50%;
+      background: transparent;
+      border: none;
       display: flex !important;
       align-items: center;
       justify-content: center;
-      color: white;
+      color: ${color};
       font-family: monospace;
       font-weight: bold;
       font-size: ${Math.max(10, size * 0.5)}px;
       pointer-events: none;
       z-index: 5;
-      box-shadow: 0 0 10px ${color}, 0 0 20px ${color};
-      text-shadow: 1px 1px 3px rgba(0, 0, 0, 1);
+      text-shadow: 0 0 10px ${color}, 0 0 20px ${color}, 1px 1px 3px rgba(0, 0, 0, 1);
       visibility: visible !important;
       opacity: 1 !important;
     `;
@@ -2761,8 +2985,7 @@ class TacticalDisplayClient {
       `;
       container.appendChild(alertIcon);
       fallbackElement.setAttribute('data-icon-type', 'locked');
-      fallbackElement.style.background = '#ffaa00'; // Orange background for locked
-      fallbackElement.style.boxShadow = '0 0 15px #ffaa00, 0 0 30px #ffaa00';
+      fallbackElement.style.background = 'transparent'; // No background for locked
     } else {
       switch (aircraftType) {
         case 'mother':
@@ -3237,6 +3460,9 @@ class TacticalDisplayClient {
         border-radius: 2px;
         transform: translateY(-50%);
         z-index: 2;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
       `;
       
       visualizationArea.appendChild(circle);
@@ -3586,6 +3812,7 @@ class TacticalDisplayClient {
       distanceLabel.setAttribute('stroke', 'black');
       distanceLabel.setAttribute('stroke-width', '0.5');
       distanceLabel.setAttribute('paint-order', 'stroke fill');
+      distanceLabel.setAttribute('style', '-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;');
       distanceLabel.textContent = `${distanceNM}NM`;
       
       svgOverlay.appendChild(distanceLabel);
@@ -3632,6 +3859,7 @@ class TacticalDisplayClient {
         friendlyDistanceLabel.setAttribute('stroke', 'black');
         friendlyDistanceLabel.setAttribute('stroke-width', '0.5');
         friendlyDistanceLabel.setAttribute('paint-order', 'stroke fill');
+        friendlyDistanceLabel.setAttribute('style', '-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;');
         friendlyDistanceLabel.textContent = `${friendlyDistanceNM}NM`;
         
         svgOverlay.appendChild(friendlyDistanceLabel);
