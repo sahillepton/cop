@@ -5,15 +5,6 @@ import dgram from 'node:dgram';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
-function u32LE(b0 : number, b1 : number, b2 : number, b3 : number) {
-  const combined = b0.toString() + b1.toString() + b2.toString() + b3.toString()
-  return parseInt(combined)
-}
-
-function i16LE(b0 : number, b1 : number) {
-  const combined = b0.toString() + b1.toString()
-  return parseInt(combined)
-}
 
 if (started) {
   app.quit();
@@ -41,119 +32,106 @@ function setupUdpClient(host: string, port: number): Promise<void> {
 
       
       udpSocket.on("message", (msg) => {
-        // Convert msg → hex array for easier visual debugging
-       
-        const parsedMessage = Array.from(msg);   // <- correct
-
-     
-     //   console.log(parsedMessage)
+        const bin = Array.from(msg)
+            .map(b => b.toString(2).padStart(8, "0"))
+            .join("");
     
-        // HEADER
-        const opcode = parsedMessage[1];
+        // helper: read n bits → number
+        const readBits = (start: number, len: number) =>
+            parseInt(bin.slice(start, start + len), 2);
+    
+        // helper: signed int16
+        const readI16 = (start: number) => {
+            let v = readBits(start, 16);
+            return v & 0x8000 ? v - 0x10000 : v;
+        };
+    
+        // helper: uint32
+        const readU32 = (start: number) => readBits(start, 32);
+    
+        // -----------------------------------------------------
+        // HEADER (16 bytes = 128 bits)
+        // -----------------------------------------------------
+        const header = {
+            msgId: readBits(0, 8),
+            opcode: readBits(8, 8),
+            reserved0: readBits(16, 32),
+            reserved1: readBits(48, 32),
+            reserved2: readBits(80, 32),
+        };
+    
+        const opcode = header.opcode;
+    
+        // -----------------------------------------------------
+        // OPCODE 101
+        // -----------------------------------------------------
         if (opcode === 101) {
+            const numMembers = readBits(128, 8);   // byte 16
+            let offset = 160;                      // skip reserved[3]
     
-          const numMembers = parsedMessage[16];
-          console.log("network members",numMembers)
-          let offset = 20; // skip reserved[3]
+            const members = [];
     
-          const members = [];
+            for (let i = 0; i < numMembers; i++) {
     
-          for (let i = 0; i < numMembers; i++) {
-            const m = {
-                globalId: 0,
-                latitude: 0,
-                longitude: 0,
-                altitude: 0,
-                veIn: 0,
-                veIe: 0,
-                veIu: 0,
-                trueHeading: 0,
-                reserved: 0,
-            };
+                const m = {
+                    globalId: readU32(offset),
+                    latitude: readU32(offset + 32),
+                    longitude: readU32(offset + 64),
+                    altitude: readI16(offset + 96),
+                    veIn: readI16(offset + 112),
+                    veIe: readI16(offset + 128),
+                    veIu: readI16(offset + 144),
+                    trueHeading: readI16(offset + 160),
+                    reserved: readI16(offset + 176),
+                };
     
-            // opcode101A structure
-            m.globalId = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
-            offset += 4;
-    
-            m.latitude =u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
-            offset += 4;
-    
-            m.longitude = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
-            offset += 4;
-    
-            m.altitude = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.veIn = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.veIe = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.veIu = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.trueHeading = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.reserved = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            members.push(m);
-          }
-          // keep latest snapshot for any late renderer requests
-          latestNodes = members;
-          if (mainWindow) {
-            mainWindow.webContents.send("data-from-main", members); 
-          }
-          
-          console.log("network Members:", members);
-        } else if (opcode === 104) {
-          const numMembers = parsedMessage[16] * 10 + parsedMessage[17];
-          console.log("enemies", numMembers)
-          let offset = 20;
-          const members = [];
-    
-          for (let i = 0; i < numMembers; i++) {
-            const m = {
-                globalId: 0,
-                latitude: 0,
-                longitude: 0,
-                altitude: 0,
-                heading : 0,
-                groundSpeed : 0,
-            };
-    
-            // opcode101A structure
-            m.globalId = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
-            offset += 4;
-    
-            m.latitude = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
-            offset += 4;
-    
-            m.longitude =u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
-            offset += 4;
-    
-            m.altitude = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.heading = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-    
-            m.groundSpeed = i16LE(parsedMessage[offset], parsedMessage[offset+1])
-            offset += 2;
-          
-            members.push(m);
-          }
-            // keep latest snapshot for any late renderer requests
-            latestNodes = members;
-            if (mainWindow) {
-              mainWindow.webContents.send("data-from-main", members); 
+                members.push(m);
+                offset += 192; // 24 bytes = 192 bits
             }
-          
-          console.log("Decoded Members:", members);
+    
+            latestNodes = members;
+            if (mainWindow) mainWindow.webContents.send("data-from-main", members);
+            console.log("Network Members:", members);
+            return;
         }
-      });
+    
+        // -----------------------------------------------------
+        // OPCODE 104
+        // -----------------------------------------------------
+        if (opcode === 104) {
+    
+            const numTargets = readBits(128, 16); // bytes 16–17
+            let offset = 160;                     // skip reserved[2]
+    
+            const targets = [];
+    
+            for (let i = 0; i < numTargets; i++) {
+    
+                const t = {
+                    globalId: readU32(offset),
+                    latitude: readU32(offset + 32),
+                    longitude: readU32(offset + 64),
+                    altitude: readI16(offset + 96),
+                    heading: readI16(offset + 112),
+                    groundSpeed: readI16(offset + 128),
+                    reserved0: readBits(offset + 144, 8),
+                    reserved1: readBits(offset + 152, 8),
+                    range: readU32(offset + 160),
+                };
+    
+                targets.push(t);
+                offset += 192; // 24 bytes = 192 bits
+            }
+    
+            latestNodes = targets;
+            if (mainWindow) mainWindow.webContents.send("data-from-main", targets);
+            console.log("Decoded Targets:", targets);
+            return;
+        }
+    
+        console.log("Unknown opcode:", opcode);
+    });
+    
     
 
       udpSocket.connect(port, host, () => {
