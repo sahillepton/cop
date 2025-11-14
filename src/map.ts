@@ -1,6 +1,6 @@
 import mapboxgl from 'mapbox-gl';
 
-type Aircraft = {
+ export type Aircraft = {
   id: string;
   lat: number;
   lng: number;
