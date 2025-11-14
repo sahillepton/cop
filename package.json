@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
-    "mapbox-gl": "^3.1.2"
+    "mapbox-gl": "^3.1.2",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.9.0",

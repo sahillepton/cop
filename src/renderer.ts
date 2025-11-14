@@ -1,9 +1,6 @@
 import './index.css';
 import mapboxgl from 'mapbox-gl';
-
-console.log(
-  '👋 This message is being logged by "renderer.ts", included via Vite',
-);
+import { ipcRenderer } from 'electron';
 
 type AircraftType = "mother" | "friendly" | "threat" | "self";
 
@@ -23,6 +20,20 @@ type Aircraft = {
   isLocked?: boolean; // Whether the aircraft is locked
   isExecuted?: boolean; // Whether the aircraft has been executed
 };
+
+type NetworkNode = {
+  globalId: number;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+};
+
+declare global {
+  interface Window {
+    // Keep legacy reference if needed for other parts of the app
+    udp?: unknown;
+  }
+}
 
 // Tactical Display Client (with dummy data)
 class TacticalDisplayClient {
@@ -143,53 +154,118 @@ class TacticalDisplayClient {
 
   constructor() {
     this.initialize();
+    this.registerIpcListeners();
   }
 
   private initialize() {
-    console.log('🎮 Initializing tactical display with dummy data...');
+    console.log('🎮 Initializing tactical display - waiting for live node data...');
+    this.aircraft.clear();
+    this.nodeId = '';
+    this.currentLat = 0;
+    this.currentLng = 0;
+    this.motherAircraft = null;
+    console.log(`📊 Aircraft map cleared: ${this.aircraft.size} entries`);
     
-    // Generate node ID
-      this.nodeId = this.generateId();
-    
-    // Set initial location within Mumbai region
-    // Mumbai coordinates: Lat 18.9°N to 19.3°N, Lng 72.7°E to 73.1°E
-    // Starting in central Mumbai area
-    this.currentLat = 19.0 + Math.random() * 0.2; // 19.0°N to 19.2°N (Central Mumbai)
-    this.currentLng = 72.8 + Math.random() * 0.2; // 72.8°E to 73.0°E (Central Mumbai)
-    
-    // Create self aircraft
-    const selfAircraft: Aircraft = {
-          id: this.nodeId,
-          status: 'connected',
-          info: 'F-35 Lightning II Client',
-          lat: this.currentLat,
-          lng: this.currentLng,
-      aircraftType: 'self',
-          callSign: `LIGHTNING-${Math.floor(Math.random() * 99) + 1}`,
-          altitude: 25000 + Math.floor(Math.random() * 10000),
-          heading: Math.floor(Math.random() * 360),
-      speed: this.getAircraftSpeed('self'),
-      totalDistanceCovered: 0,
-      lastPosition: { lat: this.currentLat, lng: this.currentLng }
-      };
-      
-    // Add self aircraft
-    this.aircraft.set(this.nodeId, selfAircraft);
-    console.log('✈️ Self aircraft created:', selfAircraft.callSign);
-      
-    // Generate dummy aircraft data
-    this.generateDummyAircraft();
-      
-    console.log(`📊 Total aircraft initialized: ${this.aircraft.size}`);
-      
     // Start all systems
-      this.startLocationUpdates();
-      this.startPeriodicMapUpdates();
-      this.startContinuousMovement();
-      this.startTacticalSimulation();
-      
+    this.startLocationUpdates();
+    this.startPeriodicMapUpdates();
+    this.startContinuousMovement();
+    this.startTacticalSimulation();
+    
     // Update UI to show all aircraft immediately
+    this.updateUI();
+  }
+
+  private registerIpcListeners() {
+    ipcRenderer.removeAllListeners('data-from-main');
+    ipcRenderer.on('data-from-main', this.handleNodeUpdate);
+    console.log('✅ Renderer listening for data-from-main events');
+  }
+
+  private handleNodeUpdate = (_event: Electron.IpcRendererEvent, data: unknown) => {
+    if (!Array.isArray(data)) {
+      console.warn('⚠️ Received non-array node payload:', data);
+      return;
+    }
+
+    const nodes: NetworkNode[] = data
+      .filter((entry): entry is NetworkNode =>
+        entry && typeof entry === 'object' &&
+        typeof (entry as any).globalId === 'number' &&
+        typeof (entry as any).latitude === 'number' &&
+        typeof (entry as any).longitude === 'number' &&
+        typeof (entry as any).altitude === 'number'
+      );
+
+    this.applyNodeSnapshot(nodes);
+  };
+
+  private applyNodeSnapshot(nodes: NetworkNode[]) {
+    console.log('📡 Applying network node snapshot:', nodes);
+
+    if (!nodes || nodes.length === 0) {
+      this.aircraft.clear();
+      this.aircraftInterpolation.clear();
+      this.motherAircraft = null;
+      this.nodeId = '';
+      this.updateLocationDisplay();
       this.updateUI();
+      return;
+    }
+
+    const updatedAircraft = new Map<string, Aircraft>();
+    let motherAssigned = false;
+
+    nodes.forEach((node, index) => {
+      const id = node.globalId.toString();
+      const existing = this.aircraft.get(id);
+      const aircraftType: AircraftType = index === 0 ? 'mother' : 'friendly';
+      const callSign = aircraftType === 'mother' ? `MOTHER-${node.globalId}` : `NODE-${node.globalId}`;
+
+      const aircraft: Aircraft = {
+        id,
+        status: 'connected',
+        info: aircraftType === 'mother' ? 'Mother Node' : 'Network Node',
+        lat: node.latitude,
+        lng: node.longitude,
+        aircraftType,
+        callSign,
+        altitude: node.altitude,
+        heading: existing?.heading ?? 0,
+        speed: existing?.speed ?? 0,
+        totalDistanceCovered: existing?.totalDistanceCovered ?? 0,
+        lastPosition: { lat: node.latitude, lng: node.longitude },
+      };
+
+      updatedAircraft.set(id, aircraft);
+
+      if (!motherAssigned && aircraftType === 'mother') {
+        this.motherAircraft = aircraft;
+        this.nodeId = id;
+        this.currentLat = node.latitude;
+        this.currentLng = node.longitude;
+        motherAssigned = true;
+      }
+    });
+
+    if (!motherAssigned) {
+      const firstEntry = Array.from(updatedAircraft.values())[0];
+      if (firstEntry) {
+        firstEntry.aircraftType = 'mother';
+        firstEntry.info = 'Mother Node';
+        firstEntry.callSign = `MOTHER-${firstEntry.id}`;
+        this.motherAircraft = firstEntry;
+        this.nodeId = firstEntry.id;
+        this.currentLat = firstEntry.lat;
+        this.currentLng = firstEntry.lng;
+        updatedAircraft.set(firstEntry.id, firstEntry);
+      }
+    }
+
+    this.aircraft = updatedAircraft;
+    this.aircraftInterpolation.clear();
+    this.updateLocationDisplay();
+    this.updateUI();
   }
 
   private generateDummyAircraft() {
@@ -201,7 +277,7 @@ class TacticalDisplayClient {
       id: this.generateId(),
       status: 'connected',
       info: 'Command Aircraft',
-      lat: motherLat,
+      lat: motherLat, 
       lng: motherLng,
       aircraftType: 'mother',
       callSign: `MOTHER-${Math.floor(Math.random() * 9) + 1}`,
@@ -4021,9 +4097,7 @@ class TacticalDisplayClient {
   }
 
   public disconnect() {
-    console.log('🛑 Disconnecting and cleaning up...');
-    
-    // Clear all intervals and timeouts
+    console.log('🛑 Disconnecting tactical display client...');
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
@@ -4044,6 +4118,7 @@ class TacticalDisplayClient {
       clearTimeout(this.viewAdjustmentThrottle);
       this.viewAdjustmentThrottle = null;
     }
+    ipcRenderer.removeListener('data-from-main', this.handleNodeUpdate);
     // Clear aircraft data
     this.aircraft.clear();
     this.aircraftInterpolation.clear();

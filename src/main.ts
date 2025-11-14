@@ -12,6 +12,7 @@ if (started) {
 let mainWindow: BrowserWindow | null = null;
 let promptWindow: BrowserWindow | null = null;
 let udpSocket: dgram.Socket | null = null;
+let latestNodes: Array<{ globalId: number; latitude: number; longitude: number; altitude: number }> = [];
 
 function setupUdpClient(host: string, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -24,25 +25,54 @@ function setupUdpClient(host: string, port: number): Promise<void> {
       });
 
       udpSocket.on('message', (msg, rinfo) => {
-        const decompressed = maybeDecompress(msg);
-        let formatted: string | null = null;
-        try {
-          const parsed = parseSchedulerMessage(decompressed);
-          formatted = formatSchedulerLog(parsed, rinfo.address, rinfo.port);
-        } catch {
-          // Fallback to text if structured parse fails
-        }
-
-        if (formatted) {
-          console.log(formatted);
-          if (mainWindow) {
-            mainWindow.webContents.send('udp-message', formatted);
+        const hex = msg.toString("hex")
+        const buf = Buffer.from(hex, "hex");
+        console.log(Array.from(buf));
+        msg = buf;
+        
+        const header = msg.subarray(0,16)
+        const opcode = header[1] // opcode
+        if (opcode === 101) {
+          const numOfNetworkMembers = msg[16]
+          const nwMembers = [];
+          const entrySize = 24;
+          let offset = 20;
+          for (let i=0; i<numOfNetworkMembers; i++) {
+            const view = new DataView(msg.buffer, msg.byteOffset + offset, entrySize);
+            const globalId = view.getUint32(0, true);
+            const latitude = view.getFloat32(4, true);
+            const longitude = view.getFloat32(8, true);
+            const altitude = view.getInt16(12, true);
+            const veIn = view.getInt16(14, true);
+            const veIe = view.getInt16(16, true);
+            const veIu = view.getInt16(18, true);
+            const trueHeading = view.getInt16(20, true);
+            const reserved = view.getInt16(22, true);
+        
+            nwMembers.push({
+              globalId,
+              latitude,
+              longitude,
+              altitude,
+              veIn,
+              veIe,
+              veIu,
+              trueHeading,
+              reserved,
+            });
+        
+            offset += entrySize;
           }
-        } else {
-          const text = decodeBufferToText(decompressed);
-      //    console.log(`[UDP] ${rinfo.address}:${rinfo.port} -> ${text}`);
+
+          latestNodes = nwMembers.map(member => ({
+            globalId: member.globalId,
+            latitude: member.latitude,
+            longitude: member.longitude,
+            altitude: member.altitude,
+          }));
+
           if (mainWindow) {
-            mainWindow.webContents.send('udp-message', text);
+            mainWindow.webContents.send('data-from-main', latestNodes);
           }
         }
       });
@@ -563,6 +593,12 @@ const createWindow = () => {
     );
   }
 
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (latestNodes.length > 0) {
+      mainWindow?.webContents.send('udp-nodes', latestNodes);
+    }
+  });
+
   globalShortcut.register('F11', () => {
     mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
@@ -578,17 +614,23 @@ const createWindow = () => {
   });
 };
 
-app.whenReady().then(() => {
-  createPromptWindow()
+app.whenReady().then(async () => {
+  try {
+    await setupUdpClient('127.0.0.1', 5005);
+    console.log("UDP connected to localhost:5005");
+  } catch (err) {
+    console.error("Failed to connect UDP:", err);
+  }
+
+  createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      if (!mainWindow) {
-        createPromptWindow()
-      }
+      createWindow();
     }
-  })
-})
+  });
+});
+
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -600,22 +642,3 @@ app.on('window-all-closed', () => {
   }
 })
 
-ipcMain.on('udp-config', async (_event, payload: { host: string; port: number }) => {
-  const host = (payload?.host || '127.0.0.1').trim();
-  const port = Number(payload?.port) || 5005;
-  if (!Number.isFinite(port) || port < 1 || port > 65535) {
-    return;
-  }
-
-  try {
-    await setupUdpClient(host, port);
-    if (promptWindow) {
-      promptWindow.close();
-      promptWindow = null;
-    }
-    createWindow();
-  } catch (e) {
-    console.error('[UDP] failed to connect with provided config:', e);
-    // Keep the prompt open; the inline HTML shows the error message upon next submit
-  }
-});
