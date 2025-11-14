@@ -5,6 +5,16 @@ import dgram from 'node:dgram';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
+function u32LE(b0 : number, b1 : number, b2 : number, b3 : number) {
+  const combined = b0.toString() + b1.toString() + b2.toString() + b3.toString()
+  return parseInt(combined)
+}
+
+function i16LE(b0 : number, b1 : number) {
+  const combined = b0.toString() + b1.toString()
+  return parseInt(combined)
+}
+
 if (started) {
   app.quit();
 }
@@ -13,6 +23,11 @@ let mainWindow: BrowserWindow | null = null;
 let promptWindow: BrowserWindow | null = null;
 let udpSocket: dgram.Socket | null = null;
 let latestNodes: Array<{ globalId: number; latitude: number; longitude: number; altitude: number }> = [];
+
+// Allow renderer to request the latest snapshot (safe IPC invoke)
+ipcMain.handle('udp-request-latest', async () => {
+  return latestNodes;
+});
 
 function setupUdpClient(host: string, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -24,58 +39,122 @@ function setupUdpClient(host: string, port: number): Promise<void> {
         reject(err);
       });
 
-      udpSocket.on('message', (msg, rinfo) => {
-        const hex = msg.toString("hex")
-        const buf = Buffer.from(hex, "hex");
-        console.log(Array.from(buf));
-        msg = buf;
-        
-        const header = msg.subarray(0,16)
-        const opcode = header[1] // opcode
+      
+      udpSocket.on("message", (msg) => {
+        // Convert msg → hex array for easier visual debugging
+       
+        const parsedMessage = Array.from(msg);   // <- correct
+
+     
+     //   console.log(parsedMessage)
+    
+        // HEADER
+        const opcode = parsedMessage[1];
         if (opcode === 101) {
-          const numOfNetworkMembers = msg[16]
-          const nwMembers = [];
-          const entrySize = 24;
-          let offset = 20;
-          for (let i=0; i<numOfNetworkMembers; i++) {
-            const view = new DataView(msg.buffer, msg.byteOffset + offset, entrySize);
-            const globalId = view.getUint32(0, true);
-            const latitude = view.getFloat32(4, true);
-            const longitude = view.getFloat32(8, true);
-            const altitude = view.getInt16(12, true);
-            const veIn = view.getInt16(14, true);
-            const veIe = view.getInt16(16, true);
-            const veIu = view.getInt16(18, true);
-            const trueHeading = view.getInt16(20, true);
-            const reserved = view.getInt16(22, true);
-        
-            nwMembers.push({
-              globalId,
-              latitude,
-              longitude,
-              altitude,
-              veIn,
-              veIe,
-              veIu,
-              trueHeading,
-              reserved,
-            });
-        
-            offset += entrySize;
+    
+          const numMembers = parsedMessage[16];
+          console.log("network members",numMembers)
+          let offset = 20; // skip reserved[3]
+    
+          const members = [];
+    
+          for (let i = 0; i < numMembers; i++) {
+            const m = {
+                globalId: 0,
+                latitude: 0,
+                longitude: 0,
+                altitude: 0,
+                veIn: 0,
+                veIe: 0,
+                veIu: 0,
+                trueHeading: 0,
+                reserved: 0,
+            };
+    
+            // opcode101A structure
+            m.globalId = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
+            offset += 4;
+    
+            m.latitude =u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
+            offset += 4;
+    
+            m.longitude = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
+            offset += 4;
+    
+            m.altitude = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.veIn = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.veIe = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.veIu = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.trueHeading = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.reserved = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            members.push(m);
           }
-
-          latestNodes = nwMembers.map(member => ({
-            globalId: member.globalId,
-            latitude: member.latitude,
-            longitude: member.longitude,
-            altitude: member.altitude,
-          }));
-
+          // keep latest snapshot for any late renderer requests
+          latestNodes = members;
           if (mainWindow) {
-            mainWindow.webContents.send('data-from-main', latestNodes);
+            mainWindow.webContents.send("data-from-main", members); 
           }
+          
+          console.log("network Members:", members);
+        } else if (opcode === 104) {
+          const numMembers = parsedMessage[16] * 10 + parsedMessage[17];
+          console.log("enemies", numMembers)
+          let offset = 20;
+          const members = [];
+    
+          for (let i = 0; i < numMembers; i++) {
+            const m = {
+                globalId: 0,
+                latitude: 0,
+                longitude: 0,
+                altitude: 0,
+                heading : 0,
+                groundSpeed : 0,
+            };
+    
+            // opcode101A structure
+            m.globalId = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
+            offset += 4;
+    
+            m.latitude = u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
+            offset += 4;
+    
+            m.longitude =u32LE(parsedMessage[offset], parsedMessage[offset+1], parsedMessage[offset+2], parsedMessage[offset+3]);
+            offset += 4;
+    
+            m.altitude = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.heading = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+    
+            m.groundSpeed = i16LE(parsedMessage[offset], parsedMessage[offset+1])
+            offset += 2;
+          
+            members.push(m);
+          }
+            // keep latest snapshot for any late renderer requests
+            latestNodes = members;
+            if (mainWindow) {
+              mainWindow.webContents.send("data-from-main", members); 
+            }
+          
+          console.log("Decoded Members:", members);
         }
       });
+    
 
       udpSocket.connect(port, host, () => {
         console.log(`[UDP] connected to ${host}:${port}`);
